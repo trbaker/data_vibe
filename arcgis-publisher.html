@@ -63,6 +63,14 @@ body {
   letter-spacing: -.3px;
 }
 .hdr-text p { font-size: 13px; color: var(--text-dim); margin-top: 3px; }
+.ver-badge {
+  margin-left: auto; flex-shrink: 0; align-self: flex-start;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  color: var(--text-mute); background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 8px; letter-spacing: .3px;
+  white-space: nowrap;
+}
 
 /* ── WIZARD TRACK ── */
 .wiz-track {
@@ -413,6 +421,7 @@ body {
       <h1>Publish your CSV or GPX to ArcGIS Online</h1>
       <p>Upload a file, publish a hosted feature layer, and open it in the web map viewer</p>
     </div>
+    <div class="ver-badge" title="Build version">v<span id="appVersion"></span></div>
   </div>
 
   <!-- Wizard track -->
@@ -656,6 +665,11 @@ body {
 </div><!-- /shell -->
 <script>
 // ══════════════════════════════════════════════════
+//  VERSION
+// ══════════════════════════════════════════════════
+const APP_VERSION = 10;  // incremented each time a new build is presented for download
+
+// ══════════════════════════════════════════════════
 //  CONSTANTS
 // ══════════════════════════════════════════════════
 const DEFAULT_PORTAL = 'https://www.arcgis.com';
@@ -836,6 +850,7 @@ function toggleEnterprise() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('appVersion').textContent = APP_VERSION;
   // Warn if running inside an iframe (Claude preview, embedded page, etc.)
   if (window.self !== window.top) {
     document.getElementById('iframeBanner').classList.remove('hidden');
@@ -1110,7 +1125,8 @@ async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,de
   const {token,user,portal}=S;
 
   logRuler();
-  syslog(`Pipeline started — user: ${user} | portal: ${portal}`, 'INFO');
+  syslog(`ArcGIS Publisher v${APP_VERSION} — pipeline started`, 'INFO');
+  syslog(`User: ${user} | Portal: ${portal}`, 'INFO');
   syslog(`File: "${S.file.name}" | Type: ${S.fileType} | Rows: ${S.rows.length} | Cols: ${S.cols.length}`, 'INFO');
   syslog(`Service name: "${svcName}" | Lat: "${latField}" | Lon: "${lonField}"${dispField?' | Display: "'+dispField+'"':''}`, 'DEBUG');
 
