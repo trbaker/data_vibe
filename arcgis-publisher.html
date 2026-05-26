@@ -573,8 +573,8 @@ body {
       <div class="pub-item" id="pi2">
         <div class="pub-icon" id="pi2ico">⚙️</div>
         <div>
-          <div class="pub-title">Publishing hosted feature layer</div>
-          <div class="pub-desc" id="pi2desc">Creating feature service from your data</div>
+          <div class="pub-title">Analyzing &amp; publishing feature layer</div>
+          <div class="pub-desc" id="pi2desc">Detecting field types, then creating feature service</div>
         </div>
       </div>
       <div class="pub-item" id="pi3">
@@ -1081,15 +1081,40 @@ async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,de
   await sleep(1500);   // AGOL needs a moment to index the item before it can be published
   piState(1,'done',`Item ID: ${fileItemId}`);
 
-  // 2. Publish
-  piState(2,'active','Submitting publish job…');
-  syslog('─── STEP 2: Publish hosted feature layer ───', 'INFO');
-  const pubParams={
-    name:svcName, locationType:'coordinates',
-    latitudeFieldName:latField, longitudeFieldName:lonField,
-    maxRecordCount:10000, hasStaticData:false, capabilities:'Query,Editing',
+  // 2. Analyze → Publish
+  piState(2,'active','Analyzing CSV structure…');
+  syslog('─── STEP 2: Analyze + Publish hosted feature layer ───', 'INFO');
+
+  // ArcGIS Online's web UI always calls /features/analyze before /publish.
+  // This returns a validated publishParameters object with layerInfo.fields
+  // (typed field definitions) that AGOL requires to accept the publish request.
+  // Skipping analyze causes an immediate "Unable to publish item" rejection.
+  const analyzeParams = {
+    enableGlobalGeocoding: false,
+    sourceLocale: 'en',
+    locationType: 'coordinates',
+    latitudeFieldName: latField,
+    longitudeFieldName: lonField,
   };
-  syslog(`Publish params: ${JSON.stringify(pubParams)}`, 'DEBUG');
+  syslog(`POST ${portal}/sharing/rest/content/features/analyze`, 'HTTP');
+  syslog(`Analyze params: ${JSON.stringify(analyzeParams)}`, 'DEBUG');
+  const analyzed = await api_analyze(portal, token, fileItemId, analyzeParams);
+  syslog(`Analyze complete — detected ${analyzed.publishParameters?.layerInfo?.fields?.length ?? '?'} fields`, 'OK');
+
+  // Merge our settings on top of the analyzed publishParameters
+  const pubParams = {
+    ...analyzed.publishParameters,
+    name: svcName,
+    locationType: 'coordinates',
+    latitudeFieldName: latField,
+    longitudeFieldName: lonField,
+    maxRecordCount: 10000,
+    hasStaticData: false,
+    capabilities: 'Query,Editing',
+  };
+  syslog(`Merged publish params: name="${pubParams.name}", fields=${pubParams.layerInfo?.fields?.length ?? 0}`, 'DEBUG');
+
+  piState(2,'active','Submitting publish job…');
   syslog(`POST ${portal}/sharing/rest/content/users/${user}/publish`, 'HTTP');
   const pub=await api_publish(portal,user,token,fileItemId,'csv',pubParams);
   let svcItemId=pub.serviceItemId;
@@ -1333,6 +1358,23 @@ async function api_addItem(portal,user,token,opts){
   const d=await res.json();
   if(d.error) throw new Error('addItem: '+(d.error.message||JSON.stringify(d.error)));
   return d.id;
+}
+
+async function api_analyze(portal, token, itemId, analyzeParameters){
+  // /features/analyze inspects an uploaded CSV and returns typed field definitions
+  // plus a validated publishParameters block — exactly what AGOL's publish endpoint needs.
+  const url = `${portal}/sharing/rest/content/features/analyze`;
+  const res = await fetch(url, {method:'POST', headers:FORM_HEADERS, body:qs(withAuth({
+    itemid: itemId,   // note: lowercase 'd' — AGOL is case-sensitive here
+    fileType: 'csv',
+    analyzeParameters: JSON.stringify(analyzeParameters),
+    f: 'json',
+  }))});
+  if(!res.ok) throw new Error(`analyze HTTP ${res.status}`);
+  const d = await res.json();
+  if(d.error) throw new Error('analyze: ' + (d.error.message || JSON.stringify(d.error)));
+  if(!d.publishParameters) throw new Error('analyze returned no publishParameters');
+  return d;
 }
 
 async function api_publish(portal,user,token,itemId,fileType,publishParameters){
