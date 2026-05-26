@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Publish your CSV or GPX to ArcGIS Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --bg:        #eef2f7;
+  --surface:   #ffffff;
+  --surface2:  #f5f7fa;
+  --border:    #dde3ec;
+  --border2:   #c8d0dc;
+  --blue:      #0079c1;
+  --blue-lt:   #e8f3fb;
+  --blue-md:   rgba(0,121,193,.12);
+  --green:     #1a8a4a;
+  --green-lt:  #e8f6ee;
+  --red:       #c0392b;
+  --red-lt:    #fdf0ee;
+  --amber:     #b45309;
+  --amber-lt:  #fef3e2;
+  --text:      #1a2332;
+  --text-dim:  #5a6782;
+  --text-mute: #9aa3b2;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.09), 0 1px 4px rgba(0,0,0,.04);
+  --sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --r: 10px;
+}
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  background-image: radial-gradient(ellipse 70% 40% at 60% -10%, rgba(0,121,193,.07) 0%, transparent 55%);
+}
+
+/* ── LAYOUT ── */
+.shell { max-width: 700px; margin: 0 auto; padding: 36px 18px 80px; }
+
+/* ── HEADER ── */
+.hdr {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 36px;
+}
+.hdr-logo {
+  width: 46px; height: 46px; flex-shrink: 0;
+  background: linear-gradient(140deg, #0079c1 0%, #005a8e 100%);
+  border-radius: 12px;
+  display: grid; place-items: center;
+  font-size: 22px;
+  box-shadow: 0 3px 10px rgba(0,121,193,.30);
+}
+.hdr-text h1 {
+  font-size: 18px; font-weight: 800; color: var(--text); line-height: 1.2;
+  letter-spacing: -.3px;
+}
+.hdr-text p { font-size: 13px; color: var(--text-dim); margin-top: 3px; }
+
+/* ── WIZARD TRACK ── */
+.wiz-track {
+  display: flex; align-items: flex-start; gap: 0;
+  margin-bottom: 28px; position: relative;
+}
+.wiz-track::before {
+  content:''; position: absolute;
+  top: 18px; left: 22px; right: 22px;
+  height: 2px; background: var(--border);
+}
+.wiz-step { flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; position:relative; z-index:1; }
+.wiz-dot {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--surface);
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  color: var(--text-mute); transition: all .3s;
+  box-shadow: var(--shadow-sm);
+}
+.wiz-step.active .wiz-dot {
+  border-color: var(--blue); background: var(--blue);
+  color: #fff; box-shadow: 0 0 0 4px rgba(0,121,193,.15);
+}
+.wiz-step.done .wiz-dot { border-color: var(--green); background: var(--green); color:#fff; }
+.wiz-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .3px;
+  color: var(--text-mute); text-transform: uppercase; text-align:center;
+  transition: color .3s;
+}
+.wiz-step.active .wiz-label { color: var(--blue); }
+.wiz-step.done .wiz-label { color: var(--green); }
+
+/* ── CARD ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: var(--shadow-md);
+}
+.card-title { font-size: 19px; font-weight: 800; color: var(--text); margin-bottom: 5px; letter-spacing:-.2px; }
+.card-sub   { font-size: 13.5px; color: var(--text-dim); margin-bottom: 26px; line-height:1.5; }
+
+/* ── FORM ── */
+.fg { margin-bottom: 18px; }
+.fg label {
+  display: block; font-size: 12px; font-weight: 700;
+  letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 6px;
+}
+.fg input, .fg select, .fg textarea {
+  width: 100%; padding: 10px 13px;
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: var(--r); color: var(--text);
+  font-family: var(--sans); font-size: 14px;
+  outline: none; transition: border-color .2s, box-shadow .2s;
+  appearance: none;
+}
+.fg select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6782' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; cursor:pointer;
+}
+.fg select option { background: #fff; }
+.fg input:focus, .fg select:focus, .fg textarea:focus {
+  border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,121,193,.10); background:#fff;
+}
+.fg input::placeholder, .fg textarea::placeholder { color: var(--text-mute); }
+.fg textarea { resize:vertical; min-height:76px; line-height:1.5; }
+.fg .hint { font-size: 12px; color: var(--text-mute); margin-top: 5px; }
+.fg-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media(max-width:480px){ .fg-row{ grid-template-columns:1fr; } }
+
+/* ── CHECKBOX ROW ── */
+.check-row {
+  display: flex; align-items: center; gap: 9px;
+  margin-bottom: 18px; cursor: pointer; user-select:none;
+}
+.check-row input[type=checkbox] {
+  width: 17px; height: 17px; accent-color: var(--blue); cursor:pointer; flex-shrink:0;
+}
+.check-row span { font-size: 13.5px; color: var(--text-dim); font-weight:500; }
+.check-row small { font-size: 12px; color: var(--text-mute); margin-left:2px; }
+
+/* ── ENTERPRISE TOGGLE ── */
+.ent-toggle {
+  font-size: 12px; color: var(--blue); cursor: pointer; text-decoration:none;
+  display:inline-block; margin-bottom:16px; font-weight:600;
+  border-bottom:1px dashed rgba(0,121,193,.3);
+}
+.ent-toggle:hover { color: #005a8e; }
+
+/* ── BUTTONS ── */
+.btn {
+  display:inline-flex; align-items:center; gap:7px;
+  padding: 10px 22px; border:none; border-radius: var(--r);
+  font-family: var(--sans); font-size: 14px; font-weight: 700;
+  cursor:pointer; transition: all .18s; line-height:1;
+}
+.btn-primary { background: var(--blue); color:#fff; }
+.btn-primary:hover { background: #0068a8; box-shadow: 0 3px 12px rgba(0,121,193,.35); }
+.btn-primary:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
+.btn-ghost { background:transparent; border:1.5px solid var(--border2); color: var(--text-dim); }
+.btn-ghost:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-lt); }
+.btn-success { background: var(--green); color:#fff; }
+.btn-success:hover { background: #157a40; box-shadow: 0 3px 12px rgba(26,138,74,.3); }
+.btn-actions { display:flex; gap:9px; justify-content:flex-end; margin-top:26px; }
+
+/* ── SPINNER ── */
+.spin {
+  width:14px; height:14px;
+  border:2px solid rgba(255,255,255,.35);
+  border-top-color:currentColor;
+  border-radius:50%; animation: rot .7s linear infinite; display:inline-block;
+}
+@keyframes rot{ to{ transform:rotate(360deg); } }
+.spin-blue { border-color: rgba(0,121,193,.2); border-top-color: var(--blue); }
+
+/* ── ALERTS ── */
+.alert {
+  display:flex; align-items:flex-start; gap:9px;
+  padding:11px 15px; border-radius:var(--r);
+  font-size:13.5px; margin-bottom:18px; line-height:1.5;
+}
+.alert-icon { flex-shrink:0; font-size:14px; margin-top:1px; }
+.alert-err  { background:var(--red-lt);   border:1px solid rgba(192,57,43,.2);  color:#7a1f17; }
+.alert-ok   { background:var(--green-lt); border:1px solid rgba(26,138,74,.2);  color:#0f5c30; }
+.alert-info { background:var(--blue-lt);  border:1px solid rgba(0,121,193,.2);  color:#00497a; }
+
+/* ── DROP ZONE ── */
+.drop-zone {
+  border: 2px dashed var(--border2); border-radius: 14px;
+  padding: 44px 24px; text-align:center; cursor:pointer;
+  transition: all .22s; margin-bottom:22px; background: var(--surface2);
+}
+.drop-zone:hover, .drop-zone.over { border-color:var(--blue); background:var(--blue-lt); }
+.drop-zone.loaded { border-style:solid; border-color:var(--green); background:var(--green-lt); }
+.drop-zone .dz-icon { font-size:40px; display:block; margin-bottom:12px; }
+.drop-zone h3 { font-size:15px; font-weight:700; margin-bottom:5px; color:var(--text); }
+.drop-zone p  { font-size:13px; color:var(--text-dim); }
+
+/* ── TABLE PREVIEW ── */
+.tbl-wrap { border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:22px; overflow-x:auto; }
+.tbl-wrap table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.tbl-wrap th {
+  background:var(--surface2); padding:9px 13px; text-align:left;
+  color:var(--blue); font-weight:700; white-space:nowrap;
+  border-bottom:1px solid var(--border); font-size:11px;
+  letter-spacing:.4px; text-transform:uppercase;
+}
+.tbl-wrap td {
+  padding:8px 13px; border-bottom:1px solid var(--border);
+  color:var(--text-dim); white-space:nowrap;
+  max-width:160px; overflow:hidden; text-overflow:ellipsis;
+}
+.tbl-wrap tr:last-child td { border-bottom:none; }
+.tbl-wrap tr:hover td { background:var(--blue-lt); }
+
+/* ── SECTION LABEL ── */
+.sec-label {
+  font-size:11px; font-weight:700; letter-spacing:.6px;
+  text-transform:uppercase; color:var(--text-dim);
+  margin-bottom:14px; padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:6px;
+}
+
+/* ── DIVIDER ── */
+.divider { height:1px; background:var(--border); margin:22px 0; }
+
+/* ── PUBLISH STEPS ── */
+.pub-list { display:flex; flex-direction:column; gap:9px; }
+.pub-item {
+  display:flex; align-items:center; gap:13px;
+  padding:13px 16px; border-radius:10px;
+  border:1px solid var(--border); background:var(--surface2);
+  transition: all .25s;
+}
+.pub-item.active { border-color:var(--blue); background:var(--blue-lt); }
+.pub-item.done   { border-color:#a8d5b8; background:var(--green-lt); }
+.pub-item.error  { border-color:#e8a9a3; background:var(--red-lt); }
+.pub-icon {
+  width:32px; height:32px; border-radius:50%; flex-shrink:0;
+  background:var(--border); display:grid; place-items:center;
+  font-size:14px; transition:background .25s;
+}
+.pub-item.active .pub-icon { background:rgba(0,121,193,.2); animation:pulse 1.5s ease infinite; }
+.pub-item.done .pub-icon   { background:rgba(26,138,74,.18); }
+.pub-item.error .pub-icon  { background:rgba(192,57,43,.15); }
+@keyframes pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(0,121,193,.35)} 50%{box-shadow:0 0 0 5px rgba(0,121,193,0)} }
+.pub-title { font-size:13.5px; font-weight:700; color:var(--text); }
+.pub-desc  { font-size:12px; color:var(--text-dim); margin-top:2px; font-family:var(--mono); }
+.pub-item.active .pub-title { color:var(--blue); }
+.pub-item.done .pub-title   { color:var(--green); }
+
+/* ── DONE ── */
+.done-wrap { margin-top:28px; text-align:center; }
+.done-badge {
+  width:72px; height:72px; border-radius:50%;
+  background:var(--green-lt); border:2px solid rgba(26,138,74,.4);
+  margin:0 auto 18px; display:grid; place-items:center;
+  font-size:34px; box-shadow:0 4px 20px rgba(26,138,74,.2);
+}
+.done-wrap h2 { font-size:21px; font-weight:800; margin-bottom:6px; }
+.done-wrap > p { font-size:14px; color:var(--text-dim); margin-bottom:22px; }
+.result-cards { display:flex; flex-direction:column; gap:9px; text-align:left; margin-bottom:24px; }
+.result-card {
+  display:flex; align-items:flex-start; gap:11px;
+  padding:13px 15px; border:1px solid var(--border); border-radius:10px; background:var(--surface2);
+}
+.rc-icon { font-size:18px; flex-shrink:0; margin-top:2px; }
+.rc-label { font-size:10px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--text-mute); margin-bottom:4px; }
+.result-card a { color:var(--blue); font-size:13px; font-family:var(--mono); word-break:break-all; text-decoration:none; }
+.result-card a:hover { text-decoration:underline; }
+.done-btns { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+
+/* ── SAVED BANNER ── */
+.saved-banner {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:10px 14px; border-radius:var(--r);
+  background:var(--blue-lt); border:1px solid rgba(0,121,193,.2);
+  margin-bottom:18px; font-size:13px;
+}
+.saved-banner span { color: #00497a; }
+.saved-banner button {
+  background:none; border:none; cursor:pointer;
+  color:var(--blue); font-size:13px; font-weight:600;
+  font-family:var(--sans); padding:2px 6px; border-radius:5px;
+}
+.saved-banner button:hover { background:rgba(0,121,193,.1); }
+
+/* ── TAG PILL ── */
+.tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; background:var(--blue-lt); color:var(--blue); margin-left:8px; vertical-align:middle; }
+
+/* ── HIDDEN ── */
+.hidden { display:none !important; }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background: var(--surface2); }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-logo">🗺</div>
+    <div class="hdr-text">
+      <h1>Publish your CSV or GPX to ArcGIS Online</h1>
+      <p>Upload a file, publish a hosted feature layer, and open it in the web map viewer</p>
+    </div>
+  </div>
+
+  <!-- Wizard track -->
+  <div class="wiz-track">
+    <div class="wiz-step active" id="ws1"><div class="wiz-dot">1</div><div class="wiz-label">Sign In</div></div>
+    <div class="wiz-step"        id="ws2"><div class="wiz-dot">2</div><div class="wiz-label">Upload</div></div>
+    <div class="wiz-step"        id="ws3"><div class="wiz-dot">3</div><div class="wiz-label">Configure</div></div>
+    <div class="wiz-step"        id="ws4"><div class="wiz-dot">4</div><div class="wiz-label">Publish</div></div>
+  </div>
+
+  <!-- ════════════════ STEP 1 ════════════════ -->
+  <div id="step1" class="card">
+    <div class="card-title">Sign in to ArcGIS Online</div>
+    <div class="card-sub">Your credentials are used only to generate a short-lived token — nothing is sent to any third party.</div>
+
+    <!-- Saved credentials banner -->
+    <div id="savedBanner" class="saved-banner hidden">
+      <span>🔑 Saved credentials loaded — <strong id="savedUser"></strong></span>
+      <button onclick="clearSaved()">Clear</button>
+    </div>
+
+    <div id="err1" class="alert alert-err hidden"><span class="alert-icon">⚠</span><span id="err1msg"></span></div>
+
+    <div class="fg-row">
+      <div class="fg">
+        <label>Username</label>
+        <input type="text" id="username" placeholder="your_username" autocomplete="username">
+      </div>
+      <div class="fg">
+        <label>Password</label>
+        <div style="position:relative">
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:40px">
+          <button onclick="togglePw()" type="button"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-mute);font-size:15px;padding:2px;line-height:1"
+            title="Show / hide">👁</button>
+        </div>
+      </div>
+    </div>
+
+    <label class="check-row">
+      <input type="checkbox" id="rememberMe" checked>
+      <span>Remember my credentials for <strong>1 hour</strong></span>
+      <small>(stored locally in your browser)</small>
+    </label>
+
+    <!-- Enterprise toggle -->
+    <a class="ent-toggle" onclick="toggleEnterprise()" id="entToggle">⚙ Using ArcGIS Enterprise?</a>
+    <div id="entSection" class="hidden">
+      <div class="fg">
+        <label>Enterprise Portal URL</label>
+        <input type="text" id="portalUrl" placeholder="https://your-org.domain.com/arcgis">
+        <div class="hint">Leave blank to use arcgis.com</div>
+      </div>
+    </div>
+
+    <div class="btn-actions">
+      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ STEP 2 ════════════════ -->
+  <div id="step2" class="card hidden">
+    <div class="card-title">Upload Your Data File</div>
+    <div class="card-sub">Drag and drop, or click to browse. Supported formats: CSV, GPX, GeoJSON, KML.</div>
+
+    <div id="err2" class="alert alert-err hidden"><span class="alert-icon">⚠</span><span id="err2msg"></span></div>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+         ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
+      <span class="dz-icon" id="dzIcon">📂</span>
+      <h3 id="dzTitle">Drop your file here, or click to browse</h3>
+      <p id="dzSub">CSV &nbsp;·&nbsp; GPX &nbsp;·&nbsp; GeoJSON &nbsp;·&nbsp; KML &nbsp;·&nbsp; XML</p>
+      <input type="file" id="fileInput" accept=".csv,.gpx,.geojson,.kml,.xml,.txt" class="hidden" onchange="onFileInput(event)">
+    </div>
+
+    <div id="previewArea" class="hidden">
+      <div id="previewInfo" class="alert alert-ok" style="margin-bottom:14px">
+        <span class="alert-icon">✓</span><span id="previewMsg"></span>
+      </div>
+      <div class="tbl-wrap" id="tblWrap"></div>
+    </div>
+
+    <div class="btn-actions">
+      <button class="btn btn-ghost" onclick="nav(1)">← Back</button>
+      <button class="btn btn-primary" id="btn2next" onclick="nav(3)" disabled>Next: Configure →</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ STEP 3 ════════════════ -->
+  <div id="step3" class="card hidden">
+    <div class="card-title">Configure Your Layer</div>
+    <div class="card-sub">Map your data fields to coordinates and set up the feature service details.</div>
+
+    <div id="err3" class="alert alert-err hidden"><span class="alert-icon">⚠</span><span id="err3msg"></span></div>
+
+    <div class="sec-label">📋 Service Details</div>
+    <div class="fg-row">
+      <div class="fg">
+        <label>Service Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(URL key)</span></label>
+        <input type="text" id="svcName" placeholder="my_locations_2024">
+        <div class="hint">Letters, numbers, underscores only.</div>
+      </div>
+      <div class="fg">
+        <label>Display Title</label>
+        <input type="text" id="svcTitle" placeholder="My Locations 2024">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="sec-label">📍 Coordinate Fields</div>
+    <div class="fg-row">
+      <div class="fg">
+        <label>Latitude Field</label>
+        <select id="latField"><option value="">— Select —</option></select>
+      </div>
+      <div class="fg">
+        <label>Longitude Field</label>
+        <select id="lonField"><option value="">— Select —</option></select>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label>Pop-up / Display Field <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+      <select id="dispField"><option value="">— None —</option></select>
+      <div class="hint">The field shown when a user clicks on a feature in the map.</div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="sec-label">🏷 Metadata</div>
+    <div class="fg">
+      <label>Tags</label>
+      <input type="text" id="tags" value="published, feature service, data" placeholder="comma-separated tags">
+    </div>
+    <div class="fg">
+      <label>Description <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+      <textarea id="descField" placeholder="Describe this layer…"></textarea>
+    </div>
+
+    <div class="btn-actions">
+      <button class="btn btn-ghost" onclick="nav(2)">← Back</button>
+      <button class="btn btn-primary" id="btnPublish" onclick="doPublish()">🚀 Publish Now</button>
+    </div>
+  </div>
+
+  <!-- ════════════════ STEP 4 ════════════════ -->
+  <div id="step4" class="card hidden">
+    <div class="card-title">Publishing…</div>
+    <div class="card-sub" id="pubSub">Working through the pipeline — this may take up to a minute.</div>
+
+    <div class="pub-list">
+      <div class="pub-item" id="pi1">
+        <div class="pub-icon" id="pi1ico">📤</div>
+        <div>
+          <div class="pub-title">Uploading file to ArcGIS Online</div>
+          <div class="pub-desc" id="pi1desc">Adding item to your content</div>
+        </div>
+      </div>
+      <div class="pub-item" id="pi2">
+        <div class="pub-icon" id="pi2ico">⚙️</div>
+        <div>
+          <div class="pub-title">Publishing hosted feature layer</div>
+          <div class="pub-desc" id="pi2desc">Creating feature service from your data</div>
+        </div>
+      </div>
+      <div class="pub-item" id="pi3">
+        <div class="pub-icon" id="pi3ico">🌐</div>
+        <div>
+          <div class="pub-title">Sharing feature service publicly</div>
+          <div class="pub-desc" id="pi3desc">Setting access level to Everyone</div>
+        </div>
+      </div>
+      <div class="pub-item" id="pi4">
+        <div class="pub-icon" id="pi4ico">🗺</div>
+        <div>
+          <div class="pub-title">Creating ArcGIS Online web map</div>
+          <div class="pub-desc" id="pi4desc">Building map with Topographic basemap</div>
+        </div>
+      </div>
+      <div class="pub-item" id="pi5">
+        <div class="pub-icon" id="pi5ico">🔗</div>
+        <div>
+          <div class="pub-title">Sharing web map publicly</div>
+          <div class="pub-desc" id="pi5desc">Setting access level to Everyone</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="errPub" class="alert alert-err hidden" style="margin-top:18px">
+      <span class="alert-icon">⚠</span><span id="errPubMsg"></span>
+    </div>
+
+    <!-- Done section -->
+    <div id="doneWrap" class="done-wrap hidden">
+      <div class="done-badge">✓</div>
+      <h2>Published Successfully!</h2>
+      <p>Your feature service and web map are live and publicly accessible.</p>
+
+      <div class="result-cards">
+        <div class="result-card">
+          <span class="rc-icon">🗂</span>
+          <div>
+            <div class="rc-label">Feature Service URL</div>
+            <a id="fsLink" href="#" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+        <div class="result-card">
+          <span class="rc-icon">🗺</span>
+          <div>
+            <div class="rc-label">Web Map Item Page</div>
+            <a id="wmLink" href="#" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="done-btns">
+        <button class="btn btn-success" onclick="openMap()">🗺 Open Web Map Viewer</button>
+        <button class="btn btn-ghost" onclick="startOver()">↺ Start Over</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+<script>
+// ══════════════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════════════
+const DEFAULT_PORTAL = 'https://www.arcgis.com';
+const CRED_KEY       = 'agol_publisher_creds';
+const CRED_TTL       = 60 * 60 * 1000; // 1 hour in ms
+
+// ══════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════
+const S = {
+  step:1, token:null, user:null, portal: DEFAULT_PORTAL,
+  file:null, fileExt:null, fileType:null,
+  rows:[], cols:[],
+  fileItemId:null, svcItemId:null, svcUrl:null, mapId:null,
+};
+
+// ══════════════════════════════════════════════════
+//  CREDENTIAL MEMORY
+// ══════════════════════════════════════════════════
+function loadSavedCreds() {
+  try {
+    const raw = localStorage.getItem(CRED_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    if (!obj.expiry || Date.now() > obj.expiry) {
+      localStorage.removeItem(CRED_KEY);
+      return;
+    }
+    document.getElementById('username').value = obj.u || '';
+    document.getElementById('password').value = obj.p || '';
+    if (obj.portal) document.getElementById('portalUrl').value = obj.portal;
+    document.getElementById('savedUser').textContent = obj.u;
+    document.getElementById('savedBanner').classList.remove('hidden');
+  } catch(e) {
+    localStorage.removeItem(CRED_KEY);
+  }
+}
+
+function saveCreds(u, p, portal) {
+  try {
+    localStorage.setItem(CRED_KEY, JSON.stringify({
+      u, p,
+      portal: portal !== DEFAULT_PORTAL ? portal : undefined,
+      expiry: Date.now() + CRED_TTL,
+    }));
+  } catch(e) {}
+}
+
+function clearSaved() {
+  localStorage.removeItem(CRED_KEY);
+  document.getElementById('savedBanner').classList.add('hidden');
+  document.getElementById('username').value = '';
+  document.getElementById('password').value = '';
+  document.getElementById('username').focus();
+}
+
+// ══════════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════════
+function nav(n) {
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById('step' + i).classList.add('hidden');
+    const ws = document.getElementById('ws' + i);
+    ws.classList.remove('active','done');
+    const dot = ws.querySelector('.wiz-dot');
+    if      (i < n) { ws.classList.add('done');   dot.textContent = '✓'; }
+    else if (i===n) { ws.classList.add('active'); dot.textContent = String(i); }
+    else            {                              dot.textContent = String(i); }
+  }
+  document.getElementById('step' + n).classList.remove('hidden');
+  S.step = n;
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ══════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.querySelector('[id$=msg]').textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'nearest'}),50);
+}
+function hideErr(id){ document.getElementById(id).classList.add('hidden'); }
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+// ══════════════════════════════════════════════════
+//  STEP 1 — SIGN IN
+// ══════════════════════════════════════════════════
+function togglePw() {
+  const f = document.getElementById('password');
+  f.type = f.type==='password' ? 'text' : 'password';
+}
+function toggleEnterprise() {
+  const sec = document.getElementById('entSection');
+  const tog = document.getElementById('entToggle');
+  const hidden = sec.classList.toggle('hidden');
+  tog.textContent = hidden ? '⚙ Using ArcGIS Enterprise?' : '⚙ Hide Enterprise settings';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSavedCreds();
+  document.getElementById('password').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+});
+
+async function doLogin() {
+  hideErr('err1');
+  const portalInput = document.getElementById('portalUrl').value.trim().replace(/\/+$/,'');
+  const portal = portalInput || DEFAULT_PORTAL;
+  const user   = document.getElementById('username').value.trim();
+  const pass   = document.getElementById('password').value;
+  if (!user || !pass) { showErr('err1','Please enter your username and password.'); return; }
+
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Signing in…';
+
+  try {
+    const token = await agolToken(user, pass, portal);
+    S.token = token; S.user = user; S.portal = portal;
+    if (document.getElementById('rememberMe').checked) saveCreds(user, pass, portal);
+    nav(2);
+  } catch(e) {
+    showErr('err1', 'Sign-in failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Sign In →';
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  STEP 2 — FILE UPLOAD
+// ══════════════════════════════════════════════════
+function dzOver(e)  { e.preventDefault(); document.getElementById('dropZone').classList.add('over'); }
+function dzLeave()  { document.getElementById('dropZone').classList.remove('over'); }
+function dzDrop(e)  { e.preventDefault(); dzLeave(); const f=e.dataTransfer.files[0]; if(f) ingest(f); }
+function onFileInput(e){ const f=e.target.files[0]; if(f) ingest(f); }
+
+function ingest(file) {
+  hideErr('err2');
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['csv','gpx','geojson','kml','xml','txt'].includes(ext)) {
+    showErr('err2',`Unsupported file type ".${ext}". Please use CSV, GPX, GeoJSON, or KML.`);
+    return;
+  }
+  S.file=file; S.fileExt=ext;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try { parseFile(ev.target.result, file.name, ext); }
+    catch(e) { showErr('err2','Parse error: ' + e.message); }
+  };
+  reader.readAsText(file);
+}
+
+function parseFile(text, name, ext) {
+  if      (ext==='csv'||ext==='txt')  parseCsv(text,name);
+  else if (ext==='gpx')               parseGpx(text,name);
+  else if (ext==='geojson')           parseGeojson(text,name);
+  else                                parseKml(text,name);
+}
+
+function parseCsv(text,name){
+  const r=Papa.parse(text,{header:true,skipEmptyLines:true,dynamicTyping:false});
+  if(r.data.length===0) throw new Error('CSV appears empty.');
+  setData(r.data, r.meta.fields||[], 'CSV', name);
+}
+function parseGpx(text,name){
+  const doc=new DOMParser().parseFromString(text,'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error('Invalid GPX XML.');
+  const pts=[...doc.querySelectorAll('wpt'),...doc.querySelectorAll('trkpt'),...doc.querySelectorAll('rtept')];
+  if(!pts.length) throw new Error('No waypoints or track points found in GPX.');
+  const rows=pts.map(pt=>{
+    const row={latitude:pt.getAttribute('lat'),longitude:pt.getAttribute('lon')};
+    [['name','name'],['desc','description'],['ele','elevation'],['time','time'],['type','type'],['sym','symbol'],['cmt','comment']].forEach(([tag,key])=>{
+      const el=pt.querySelector(tag); if(el) row[key]=el.textContent.trim();
+    });
+    return row;
+  });
+  const cols=['latitude','longitude','name','description','elevation','time','type','symbol','comment'].filter(c=>rows.some(r=>r[c]!==undefined));
+  setData(rows,cols,'GPX',name);
+}
+function parseGeojson(text,name){
+  const json=JSON.parse(text);
+  const features=json.type==='FeatureCollection'?json.features:json.type==='Feature'?[json]:[];
+  if(!features.length) throw new Error('No features found in GeoJSON.');
+  const fieldSet=new Set(['longitude','latitude']);
+  features.forEach(f=>{ if(f.properties) Object.keys(f.properties).forEach(k=>fieldSet.add(k)); });
+  const rows=features.map(f=>{
+    const row={...(f.properties||{})};
+    if(f.geometry?.type==='Point'){ row.longitude=f.geometry.coordinates[0]; row.latitude=f.geometry.coordinates[1]; }
+    return row;
+  });
+  setData(rows,[...fieldSet].filter(c=>rows.some(r=>r[c]!==undefined)),'GeoJSON',name);
+}
+function parseKml(text,name){
+  const doc=new DOMParser().parseFromString(text,'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error('Invalid KML/XML.');
+  const marks=doc.querySelectorAll('Placemark');
+  if(!marks.length) throw new Error('No Placemarks found in KML.');
+  const fieldSet=new Set(['name','description','longitude','latitude','altitude']);
+  const rows=[...marks].map(pm=>{
+    const row={};
+    const n=pm.querySelector('name'); if(n) row.name=n.textContent.trim();
+    const d=pm.querySelector('description'); if(d) row.description=d.textContent.trim();
+    const c=pm.querySelector('Point coordinates,coordinates');
+    if(c){ const p=c.textContent.trim().split(','); row.longitude=p[0]; row.latitude=p[1]; if(p[2])row.altitude=p[2]; }
+    pm.querySelectorAll('SimpleData').forEach(sd=>{ const k=sd.getAttribute('name'); row[k]=sd.textContent; fieldSet.add(k); });
+    return row;
+  });
+  setData(rows,[...fieldSet].filter(c=>rows.some(r=>r[c]!==undefined)),'KML',name);
+}
+
+function setData(rows,cols,type,name){
+  S.rows=rows; S.cols=cols; S.fileType=type;
+  // Preview table
+  const pCols=cols.slice(0,8);
+  let html='<table><thead><tr>'+pCols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>';
+  rows.slice(0,6).forEach(row=>{ html+='<tr>'+pCols.map(c=>`<td title="${esc(row[c])}">${esc(String(row[c]??''))}</td>`).join('')+'</tr>'; });
+  html+='</tbody></table>';
+  document.getElementById('tblWrap').innerHTML=html;
+  document.getElementById('previewMsg').textContent=`${name} — ${rows.length.toLocaleString()} rows · ${cols.length} columns · ${type}`;
+  document.getElementById('previewArea').classList.remove('hidden');
+  const dz=document.getElementById('dropZone');
+  dz.classList.add('loaded');
+  document.getElementById('dzIcon').textContent='✅';
+  document.getElementById('dzTitle').textContent=name;
+  document.getElementById('dzSub').textContent=`${rows.length.toLocaleString()} records loaded`;
+  document.getElementById('btn2next').disabled=false;
+  // Pre-fill config
+  populateConfig(name);
+}
+
+// ══════════════════════════════════════════════════
+//  STEP 3 — CONFIGURE
+// ══════════════════════════════════════════════════
+function populateConfig(filename){
+  const base=filename.replace(/\.[^.]+$/,'');
+  document.getElementById('svcName').value=base.replace(/[^a-zA-Z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  document.getElementById('svcTitle').value=base;
+  ['latField','lonField','dispField'].forEach(id=>{
+    const sel=document.getElementById(id);
+    while(sel.options.length>1) sel.remove(1);
+    S.cols.forEach(c=>sel.add(new Option(c,c)));
+  });
+  const autoLat =find(S.cols,['lat','latitude','y','ylat','lat_dd','latitude_dd','decimallatitude','geo_lat','point_lat','lat_wgs84']);
+  const autoLon =find(S.cols,['lon','lng','long','longitude','x','xlong','lon_dd','longitude_dd','decimallongitude','geo_lon','point_lon','lon_wgs84']);
+  const autoName=find(S.cols,['name','title','label','id','site_name','place_name','location','description','placename','station']);
+  if(autoLat) document.getElementById('latField').value=autoLat;
+  if(autoLon) document.getElementById('lonField').value=autoLon;
+  if(autoName) document.getElementById('dispField').value=autoName;
+}
+
+function find(cols,candidates){
+  for(const c of candidates){ const h=cols.find(x=>x.toLowerCase()===c); if(h) return h; }
+  for(const c of candidates){ const h=cols.find(x=>x.toLowerCase().includes(c)); if(h) return h; }
+  return null;
+}
+
+// ══════════════════════════════════════════════════
+//  STEP 4 — PUBLISH
+// ══════════════════════════════════════════════════
+async function doPublish(){
+  hideErr('err3');
+  const svcName  =document.getElementById('svcName').value.trim().replace(/[^a-zA-Z0-9_]/g,'_');
+  const svcTitle =document.getElementById('svcTitle').value.trim()||svcName;
+  const latField =document.getElementById('latField').value;
+  const lonField =document.getElementById('lonField').value;
+  const dispField=document.getElementById('dispField').value;
+  const tags     =document.getElementById('tags').value.trim()||'published';
+  const desc     =document.getElementById('descField').value.trim();
+  if(!svcName)          { showErr('err3','Service name is required.'); return; }
+  if(!latField||!lonField){ showErr('err3','Please select both a latitude and a longitude field.'); return; }
+  if(latField===lonField) { showErr('err3','Latitude and longitude must be different fields.'); return; }
+
+  const btn=document.getElementById('btnPublish');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span> Starting…';
+  nav(4);
+  try {
+    await runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,desc});
+  } catch(e) {
+    document.getElementById('errPubMsg').textContent=e.message;
+    document.getElementById('errPub').classList.remove('hidden');
+    document.getElementById('pubSub').textContent='An error occurred. See details below.';
+  } finally {
+    btn.disabled=false; btn.innerHTML='🚀 Publish Now';
+  }
+}
+
+function piState(n,st,desc){
+  const el=document.getElementById('pi'+n);
+  el.classList.remove('active','done','error');
+  el.classList.add(st);
+  if(desc) document.getElementById('pi'+n+'desc').textContent=desc;
+  const ico=document.getElementById('pi'+n+'ico');
+  if(st==='active') ico.innerHTML='<span class="spin spin-blue"></span>';
+  else if(st==='done') ico.textContent='✓';
+  else if(st==='error') ico.textContent='✗';
+}
+
+async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,desc}){
+  const {token,user,portal}=S;
+
+  // 1. Upload
+  piState(1,'active','Uploading to ArcGIS Online…');
+  let uploadFile=S.file;
+  if(S.fileType!=='CSV'){
+    const csvText=rowsToCSV(S.rows,S.cols);
+    uploadFile=new File([csvText],svcName+'.csv',{type:'text/csv'});
+  }
+  const fileItemId=await api_addItem(portal,user,token,{
+    title:svcTitle, type:'CSV', file:uploadFile, tags, description:desc,
+  });
+  S.fileItemId=fileItemId;
+  piState(1,'done',`Item ID: ${fileItemId}`);
+
+  // 2. Publish
+  piState(2,'active','Submitting publish job…');
+  const pubParams={
+    name:svcName, locationType:'coordinates',
+    latitudeFieldName:latField, longitudeFieldName:lonField,
+    maxRecordCount:10000, hasStaticData:false, capabilities:'Query,Editing',
+  };
+  const pub=await api_publish(portal,user,token,fileItemId,'CSV',pubParams);
+  let svcItemId=pub.serviceItemId;
+  let svcUrl=pub.serviceurl||pub.encodedServiceURL||'';
+  if(svcUrl.includes('%')) svcUrl=decodeURIComponent(svcUrl);
+
+  if(pub.jobId){
+    piState(2,'active','Waiting for feature service to be created…');
+    await pollJob(portal,user,token,fileItemId,pub.jobId);
+  }
+  if(svcItemId){
+    try{ const d=await api_getItem(portal,token,svcItemId); if(d.url) svcUrl=d.url; }catch(_){}
+  }
+  S.svcItemId=svcItemId; S.svcUrl=svcUrl;
+  piState(2,'done',svcUrl?svcUrl.split('/').slice(-2).join('/'):'Feature service created');
+
+  // 3. Share FS
+  piState(3,'active','Setting sharing to Everyone…');
+  if(svcItemId) await api_share(portal,user,token,svcItemId);
+  try{ await api_share(portal,user,token,fileItemId); }catch(_){}
+  piState(3,'done','Shared publicly with Everyone');
+
+  // 4. Create web map
+  piState(4,'active','Building web map definition…');
+  const layerUrl=normalizeLayerUrl(svcUrl);
+  const mapDef=makeWebMap(svcTitle,layerUrl,svcItemId,dispField);
+  const mapId=await api_addItem(portal,user,token,{
+    title:svcTitle+' — Web Map', type:'Web Map',
+    text:JSON.stringify(mapDef),
+    snippet:`Web map for: ${svcTitle}`, tags, description:desc,
+  });
+  S.mapId=mapId;
+  piState(4,'done',`Web Map ID: ${mapId}`);
+
+  // 5. Share web map
+  piState(5,'active','Setting web map sharing to Everyone…');
+  await api_share(portal,user,token,mapId);
+  piState(5,'done','Web map shared publicly');
+
+  showDone(portal,svcUrl,mapId);
+}
+
+function normalizeLayerUrl(u){
+  if(!u) return '';
+  u=u.replace(/\/+$/,'');
+  if(/\/FeatureServer\/\d+$/.test(u)) return u;
+  if(/\/FeatureServer$/.test(u)) return u+'/0';
+  return u+'/0';
+}
+
+function showDone(portal,svcUrl,mapId){
+  const mapItem=`${portal}/home/item.html?id=${mapId}`;
+  document.getElementById('fsLink').textContent=svcUrl||'(URL unavailable)';
+  document.getElementById('fsLink').href=svcUrl||'#';
+  document.getElementById('wmLink').textContent=mapItem;
+  document.getElementById('wmLink').href=mapItem;
+  document.getElementById('pubSub').textContent='All done — your layer and web map are live!';
+  document.getElementById('doneWrap').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('doneWrap').scrollIntoView({behavior:'smooth',block:'start'}),100);
+}
+
+function openMap(){
+  window.open(`${S.portal}/apps/mapviewer/index.html?webmap=${S.mapId}`,'_blank','noopener');
+}
+
+function startOver(){
+  Object.assign(S,{step:1,token:null,user:null,portal:DEFAULT_PORTAL,
+    file:null,fileExt:null,fileType:null,rows:[],cols:[],
+    fileItemId:null,svcItemId:null,svcUrl:null,mapId:null});
+  const dz=document.getElementById('dropZone');
+  dz.classList.remove('loaded','over');
+  document.getElementById('dzIcon').textContent='📂';
+  document.getElementById('dzTitle').textContent='Drop your file here, or click to browse';
+  document.getElementById('dzSub').textContent='CSV · GPX · GeoJSON · KML · XML';
+  document.getElementById('fileInput').value='';
+  document.getElementById('previewArea').classList.add('hidden');
+  document.getElementById('btn2next').disabled=true;
+  for(let i=1;i<=5;i++){
+    document.getElementById('pi'+i).classList.remove('active','done','error');
+    document.getElementById('pi'+i+'ico').textContent=['📤','⚙️','🌐','🗺','🔗'][i-1];
+    const descs=['Adding item to your content','Creating feature service from your data',
+      'Setting access level to Everyone','Building map with Topographic basemap','Setting access level to Everyone'];
+    document.getElementById('pi'+i+'desc').textContent=descs[i-1];
+  }
+  document.getElementById('errPub').classList.add('hidden');
+  document.getElementById('doneWrap').classList.add('hidden');
+  document.getElementById('pubSub').textContent='Working through the pipeline — this may take up to a minute.';
+  nav(1);
+  loadSavedCreds();
+}
+
+// ══════════════════════════════════════════════════
+//  WEB MAP
+// ══════════════════════════════════════════════════
+function makeWebMap(title,layerUrl,layerItemId,displayField){
+  return {
+    operationalLayers:[{
+      id:'lyr0', layerType:'ArcGISFeatureLayer',
+      url:layerUrl, visibility:true, opacity:1, title:title,
+      ...(layerItemId?{itemId:layerItemId}:{}),
+      ...(displayField?{displayField}:{}),
+      popupInfo:{ title:displayField?`{${displayField}}`:`{FID}`, fieldInfos:[], showAttachments:false },
+    }],
+    baseMap:{
+      baseMapLayers:[{
+        id:'basemap0', layerType:'ArcGISTiledMapServiceLayer',
+        url:'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer',
+        visibility:true, opacity:1, title:'World Topographic Map',
+      }],
+      title:'Topographic',
+    },
+    spatialReference:{wkid:102100,latestWkid:3857},
+    authoringApp:'WebMapViewer', authoringAppVersion:'2024.1', version:'2.28',
+  };
+}
+
+// ══════════════════════════════════════════════════
+//  CSV HELPER
+// ══════════════════════════════════════════════════
+function rowsToCSV(rows,cols){
+  const q=v=>{ const s=String(v??''); return(s.includes(',')||s.includes('"')||s.includes('\n'))?'"'+s.replace(/"/g,'""')+'"':s; };
+  return [cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\r\n');
+}
+
+// ══════════════════════════════════════════════════
+//  ARCGIS REST API
+// ══════════════════════════════════════════════════
+async function agolToken(user,pass,portal){
+  const body=new URLSearchParams({username:user,password:pass,referer:portal,expiration:'120',f:'json'});
+  const res=await fetch(`${portal}/sharing/rest/generateToken`,{method:'POST',body});
+  if(!res.ok) throw new Error(`HTTP ${res.status} from portal`);
+  const d=await res.json();
+  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+  if(!d.token) throw new Error('No token returned — check your username and password.');
+  return d.token;
+}
+
+async function api_addItem(portal,user,token,opts){
+  const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/addItem`;
+  let body;
+  if(opts.file){
+    body=new FormData();
+    body.append('title',opts.title); body.append('type',opts.type); body.append('file',opts.file);
+    if(opts.tags) body.append('tags',opts.tags);
+    if(opts.description) body.append('description',opts.description);
+    body.append('token',token); body.append('f','json');
+  } else {
+    body=new URLSearchParams({title:opts.title,type:opts.type,
+      ...(opts.text?{text:opts.text}:{}),
+      ...(opts.snippet?{snippet:opts.snippet}:{}),
+      ...(opts.tags?{tags:opts.tags}:{}),
+      ...(opts.description?{description:opts.description}:{}),
+      token,f:'json'});
+  }
+  const res=await fetch(url,{method:'POST',body});
+  if(!res.ok) throw new Error(`addItem HTTP ${res.status}`);
+  const d=await res.json();
+  if(d.error) throw new Error('addItem: '+(d.error.message||JSON.stringify(d.error)));
+  return d.id;
+}
+
+async function api_publish(portal,user,token,itemId,itemType,publishParameters){
+  const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/publish`;
+  const body=new URLSearchParams({itemId,itemType,publishParameters:JSON.stringify(publishParameters),token,f:'json'});
+  const res=await fetch(url,{method:'POST',body});
+  if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
+  const d=await res.json();
+  if(d.error) throw new Error('publish: '+(d.error.message||JSON.stringify(d.error)));
+  if(!d.services?.length) throw new Error('Publish returned no services.');
+  return d.services[0];
+}
+
+async function pollJob(portal,user,token,itemId,jobId){
+  const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/status`;
+  for(let i=0;i<90;i++){
+    const params=new URLSearchParams({token,jobId,jobType:'publish',f:'json'});
+    const res=await fetch(`${url}?${params}`);
+    const d=await res.json();
+    if(d.status==='completed') return d;
+    if(d.status==='failed') throw new Error('Publish failed: '+(d.statusMessage||JSON.stringify(d)));
+    await sleep(3000);
+  }
+  throw new Error('Publish timed out after 4.5 min. Check ArcGIS Online for status.');
+}
+
+async function api_getItem(portal,token,itemId){
+  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?token=${encodeURIComponent(token)}&f=json`);
+  const d=await res.json();
+  if(d.error) throw new Error('getItem: '+d.error.message);
+  return d;
+}
+
+async function api_share(portal,user,token,itemId){
+  const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/share`;
+  const body=new URLSearchParams({everyone:'true',org:'true',token,f:'json'});
+  const res=await fetch(url,{method:'POST',body});
+  const d=await res.json();
+  if(d.error) throw new Error('share: '+(d.error.message||JSON.stringify(d.error)));
+  return d;
+}
+</script>
+</body>
+</html>
