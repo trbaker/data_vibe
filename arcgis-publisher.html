@@ -512,8 +512,8 @@ body {
     <div class="fg-row">
       <div class="fg">
         <label>Service Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(URL key)</span></label>
-        <input type="text" id="svcName" placeholder="my_locations_2024">
-        <div class="hint">Letters, numbers, underscores only.</div>
+        <input type="text" id="svcName" placeholder="my_locations_2024" onblur="this.value=sanitizeSvcName(this.value)">
+        <div class="hint">Letters, numbers, underscores only. Must start with a letter (e.g. names beginning with digits are auto-prefixed with <code style="font-family:var(--mono);font-size:11px">lyr_</code>).</div>
       </div>
       <div class="fg">
         <label>Display Title</label>
@@ -971,12 +971,19 @@ function setData(rows,cols,type,name){
   populateConfig(name);
 }
 
+function sanitizeSvcName(raw) {
+  // ArcGIS service names: letters, digits, underscores only; MUST start with a letter or underscore.
+  let s = raw.replace(/[^a-zA-Z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
+  if (/^[0-9]/.test(s)) s = 'lyr_' + s;   // cannot start with a digit
+  return s;
+}
+
 // ══════════════════════════════════════════════════
 //  STEP 3 — CONFIGURE
 // ══════════════════════════════════════════════════
 function populateConfig(filename){
   const base=filename.replace(/\.[^.]+$/,'');
-  document.getElementById('svcName').value=base.replace(/[^a-zA-Z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
+  document.getElementById('svcName').value=sanitizeSvcName(base);
   document.getElementById('svcTitle').value=base;
   ['latField','lonField','dispField'].forEach(id=>{
     const sel=document.getElementById(id);
@@ -1002,7 +1009,7 @@ function find(cols,candidates){
 // ══════════════════════════════════════════════════
 async function doPublish(){
   hideErr('err3');
-  const svcName  =document.getElementById('svcName').value.trim().replace(/[^a-zA-Z0-9_]/g,'_');
+  const svcName  =sanitizeSvcName(document.getElementById('svcName').value.trim());
   const svcTitle =document.getElementById('svcTitle').value.trim()||svcName;
   const latField =document.getElementById('latField').value;
   const lonField =document.getElementById('lonField').value;
@@ -1070,6 +1077,8 @@ async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,de
   });
   S.fileItemId=fileItemId;
   syslog(`Item uploaded successfully — itemId: ${fileItemId}`, 'OK');
+  syslog('Waiting 1.5s for item to be indexed by ArcGIS Online…', 'DEBUG');
+  await sleep(1500);   // AGOL needs a moment to index the item before it can be published
   piState(1,'done',`Item ID: ${fileItemId}`);
 
   // 2. Publish
@@ -1333,9 +1342,16 @@ async function api_publish(portal,user,token,itemId,itemType,publishParameters){
   }))});
   if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
   const d=await res.json();
+  // Top-level error (auth, bad request, etc.)
   if(d.error) throw new Error('publish: '+(d.error.message||JSON.stringify(d.error)));
-  if(!d.services?.length) throw new Error('Publish returned no services.');
-  return d.services[0];
+  if(!d.services?.length) throw new Error('Publish returned no services — the item may not have finished uploading. Try again.');
+  const svc = d.services[0];
+  // ArcGIS buries the real error inside services[0].error
+  if(svc.error) {
+    const msg = svc.error.message || svc.error.details?.join(' ') || JSON.stringify(svc.error);
+    throw new Error('publish (service): ' + msg);
+  }
+  return svc;
 }
 
 async function pollJob(portal,user,token,itemId,jobId){
