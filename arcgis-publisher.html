@@ -307,6 +307,12 @@ body {
 </style>
 </head>
 <body>
+<!-- Shown only when running inside an iframe (e.g. Claude preview) -->
+<div id="iframeBanner" class="hidden" style="background:#fff8e1;border-bottom:2px solid #f59e0b;padding:12px 20px;font-family:'Plus Jakarta Sans',sans-serif;font-size:13.5px;color:#78350f;display:flex;align-items:center;gap:10px;">
+  <span style="font-size:18px">⚠️</span>
+  <span><strong>Download required to use this app.</strong> It makes direct requests to arcgis.com which are blocked inside embedded previews. Click <strong>Download</strong> above, then open the .html file locally in your browser.</span>
+</div>
+
 <div class="shell">
 
   <!-- Header -->
@@ -642,6 +648,10 @@ function toggleEnterprise() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Warn if running inside an iframe (Claude preview, embedded page, etc.)
+  if (window.self !== window.top) {
+    document.getElementById('iframeBanner').classList.remove('hidden');
+  }
   loadSavedCreds();
   document.getElementById('password').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 });
@@ -989,9 +999,17 @@ function rowsToCSV(rows,cols){
 // ══════════════════════════════════════════════════
 //  ARCGIS REST API
 // ══════════════════════════════════════════════════
+// Serialize params to a plain string — avoids DataCloneError in sandboxed iframes
+// that can't transfer URLSearchParams objects across the fetch boundary.
+const FORM_HEADERS = {'Content-Type':'application/x-www-form-urlencoded'};
+function qs(obj){ return Object.entries(obj).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&'); }
+
 async function agolToken(user,pass,portal){
-  const body=new URLSearchParams({username:user,password:pass,referer:portal,expiration:'120',f:'json'});
-  const res=await fetch(`${portal}/sharing/rest/generateToken`,{method:'POST',body});
+  // No 'referer'/'client' → ArcGIS issues an IP-based token valid from any origin.
+  const res=await fetch(`${portal}/sharing/rest/generateToken`,{
+    method:'POST', headers:FORM_HEADERS,
+    body:qs({username:user,password:pass,expiration:'120',f:'json'}),
+  });
   if(!res.ok) throw new Error(`HTTP ${res.status} from portal`);
   const d=await res.json();
   if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
@@ -1001,22 +1019,25 @@ async function agolToken(user,pass,portal){
 
 async function api_addItem(portal,user,token,opts){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/addItem`;
-  let body;
+  let res;
   if(opts.file){
-    body=new FormData();
-    body.append('title',opts.title); body.append('type',opts.type); body.append('file',opts.file);
-    if(opts.tags) body.append('tags',opts.tags);
-    if(opts.description) body.append('description',opts.description);
-    body.append('token',token); body.append('f','json');
+    // File upload must use FormData/multipart — this is the only fetch that does so.
+    const fd=new FormData();
+    fd.append('title',opts.title); fd.append('type',opts.type); fd.append('file',opts.file);
+    if(opts.tags)        fd.append('tags',opts.tags);
+    if(opts.description) fd.append('description',opts.description);
+    fd.append('token',token); fd.append('f','json');
+    res=await fetch(url,{method:'POST',body:fd});
   } else {
-    body=new URLSearchParams({title:opts.title,type:opts.type,
-      ...(opts.text?{text:opts.text}:{}),
-      ...(opts.snippet?{snippet:opts.snippet}:{}),
-      ...(opts.tags?{tags:opts.tags}:{}),
+    res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
+      title:opts.title, type:opts.type,
+      ...(opts.text       ?{text:opts.text}:{}),
+      ...(opts.snippet    ?{snippet:opts.snippet}:{}),
+      ...(opts.tags       ?{tags:opts.tags}:{}),
       ...(opts.description?{description:opts.description}:{}),
-      token,f:'json'});
+      token, f:'json',
+    })});
   }
-  const res=await fetch(url,{method:'POST',body});
   if(!res.ok) throw new Error(`addItem HTTP ${res.status}`);
   const d=await res.json();
   if(d.error) throw new Error('addItem: '+(d.error.message||JSON.stringify(d.error)));
@@ -1025,8 +1046,9 @@ async function api_addItem(portal,user,token,opts){
 
 async function api_publish(portal,user,token,itemId,itemType,publishParameters){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/publish`;
-  const body=new URLSearchParams({itemId,itemType,publishParameters:JSON.stringify(publishParameters),token,f:'json'});
-  const res=await fetch(url,{method:'POST',body});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
+    itemId, itemType, publishParameters:JSON.stringify(publishParameters), token, f:'json',
+  })});
   if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
   const d=await res.json();
   if(d.error) throw new Error('publish: '+(d.error.message||JSON.stringify(d.error)));
@@ -1037,8 +1059,7 @@ async function api_publish(portal,user,token,itemId,itemType,publishParameters){
 async function pollJob(portal,user,token,itemId,jobId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/status`;
   for(let i=0;i<90;i++){
-    const params=new URLSearchParams({token,jobId,jobType:'publish',f:'json'});
-    const res=await fetch(`${url}?${params}`);
+    const res=await fetch(`${url}?${qs({token,jobId,jobType:'publish',f:'json'})}`);
     const d=await res.json();
     if(d.status==='completed') return d;
     if(d.status==='failed') throw new Error('Publish failed: '+(d.statusMessage||JSON.stringify(d)));
@@ -1048,7 +1069,7 @@ async function pollJob(portal,user,token,itemId,jobId){
 }
 
 async function api_getItem(portal,token,itemId){
-  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?token=${encodeURIComponent(token)}&f=json`);
+  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?${qs({token,f:'json'})}`);
   const d=await res.json();
   if(d.error) throw new Error('getItem: '+d.error.message);
   return d;
@@ -1056,8 +1077,7 @@ async function api_getItem(portal,token,itemId){
 
 async function api_share(portal,user,token,itemId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/share`;
-  const body=new URLSearchParams({everyone:'true',org:'true',token,f:'json'});
-  const res=await fetch(url,{method:'POST',body});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({everyone:'true',org:'true',token,f:'json'})});
   const d=await res.json();
   if(d.error) throw new Error('share: '+(d.error.message||JSON.stringify(d.error)));
   return d;
