@@ -906,11 +906,12 @@ function parseCsv(text,name){
   setData(r.data, r.meta.fields||[], 'CSV', name);
 }
 function parseGpx(text,name){
-  // Strip the default namespace declaration so querySelector('trkpt') works
-  // reliably across all browsers. Without this, browsers that honour XML
-  // namespaces return nothing because the nodes live in the GPX namespace,
-  // not the null namespace that querySelector targets.
-  const cleaned = text.replace(/\sxmlns(?::\w+)?="[^"]*"/g, '');
+  // Strip ALL namespace declarations AND namespace-prefixed attributes (e.g. xsi:schemaLocation).
+  // Without the second pass, xmlns:xsi is removed but xsi:schemaLocation remains on the <gpx>
+  // tag, making the XML invalid (undeclared prefix) and causing a parsererror.
+  const cleaned = text
+    .replace(/\s+xmlns(?::\w+)?="[^"]*"/g, '')   // remove xmlns="…" and xmlns:foo="…"
+    .replace(/\s+\w+:[\w-]+="[^"]*"/g, '');       // remove prefix:attr="…" (e.g. xsi:schemaLocation)
   const doc = new DOMParser().parseFromString(cleaned, 'text/xml');
   if(doc.querySelector('parsererror')) throw new Error('Invalid GPX XML — could not parse.');
 
