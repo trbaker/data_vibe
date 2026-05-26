@@ -1091,7 +1091,7 @@ async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,de
   };
   syslog(`Publish params: ${JSON.stringify(pubParams)}`, 'DEBUG');
   syslog(`POST ${portal}/sharing/rest/content/users/${user}/publish`, 'HTTP');
-  const pub=await api_publish(portal,user,token,fileItemId,'CSV',pubParams);
+  const pub=await api_publish(portal,user,token,fileItemId,'csv',pubParams);
   let svcItemId=pub.serviceItemId;
   let svcUrl=pub.serviceurl||pub.encodedServiceURL||'';
   if(svcUrl.includes('%')) svcUrl=decodeURIComponent(svcUrl);
@@ -1335,10 +1335,13 @@ async function api_addItem(portal,user,token,opts){
   return d.id;
 }
 
-async function api_publish(portal,user,token,itemId,itemType,publishParameters){
+async function api_publish(portal,user,token,itemId,fileType,publishParameters){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/publish`;
   const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({
-    itemId, itemType, publishParameters:JSON.stringify(publishParameters), f:'json',
+    itemId,
+    fileType,          // ArcGIS REST API requires "fileType", not "itemType"
+    publishParameters:JSON.stringify(publishParameters),
+    f:'json',
   }))});
   if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
   const d=await res.json();
@@ -1348,7 +1351,7 @@ async function api_publish(portal,user,token,itemId,itemType,publishParameters){
   const svc = d.services[0];
   // ArcGIS buries the real error inside services[0].error
   if(svc.error) {
-    const msg = svc.error.message || svc.error.details?.join(' ') || JSON.stringify(svc.error);
+    const msg = svc.error.message || (svc.error.details?.join(' ')) || JSON.stringify(svc.error);
     throw new Error('publish (service): ' + msg);
   }
   return svc;
