@@ -304,6 +304,97 @@ body {
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background: var(--surface2); }
 ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+
+/* ── SYSTEM LOG ── */
+.log-panel {
+  margin-top: 24px;
+  border: 1px solid #2a3a50;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,.18);
+}
+.log-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px;
+  background: #1a2535;
+  cursor: pointer; user-select: none;
+  gap: 10px;
+}
+.log-header-left { display: flex; align-items: center; gap: 8px; }
+.log-dot { width: 8px; height: 8px; border-radius: 50%; background: #5a6882; flex-shrink:0; transition: background .3s; }
+.log-dot.active  { background: #3ddc84; animation: blink 1.1s ease infinite; }
+.log-dot.ok      { background: #3ddc84; }
+.log-dot.error   { background: #ff6060; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.log-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  color: #8899aa; letter-spacing: .6px; text-transform: uppercase;
+}
+.log-controls { display: flex; align-items: center; gap: 6px; }
+.log-count {
+  font-family: var(--mono); font-size: 11px;
+  background: rgba(255,255,255,.07); color: #6a7e94;
+  padding: 2px 8px; border-radius: 10px; min-width: 28px; text-align:center;
+}
+.log-btn {
+  background: rgba(255,255,255,.06); border: none; border-radius: 6px;
+  color: #7a8ea4; font-size: 11px; font-family: var(--mono);
+  padding: 3px 9px; cursor: pointer; transition: all .15s; white-space:nowrap;
+}
+.log-btn:hover { background: rgba(255,255,255,.13); color: #c0cedd; }
+.log-chevron { color: #6a7e94; font-size: 10px; transition: transform .22s; margin-left: 2px; }
+.log-chevron.open { transform: rotate(180deg); }
+.log-body {
+  background: #111923;
+  height: 230px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  transition: height .25s ease, padding .25s ease;
+}
+.log-body.collapsed { height: 0 !important; padding: 0; }
+.log-body::-webkit-scrollbar { width: 5px; }
+.log-body::-webkit-scrollbar-track { background: #111923; }
+.log-body::-webkit-scrollbar-thumb { background: #263245; border-radius: 3px; }
+.log-line {
+  display: flex; align-items: flex-start; gap: 0;
+  padding: 1.5px 14px;
+  word-break: break-all;
+  animation: logIn .12s ease;
+}
+@keyframes logIn { from{opacity:0;transform:translateX(-4px)} to{opacity:1;transform:none} }
+.log-line:hover { background: rgba(255,255,255,.025); }
+.log-ts {
+  color: #384d62; flex-shrink: 0; margin-right: 10px;
+  font-size: 10.5px; padding-top: 2px; min-width: 64px;
+}
+.log-lvl {
+  flex-shrink: 0; margin-right: 9px; font-size: 10.5px;
+  font-weight: 700; letter-spacing: .4px; min-width: 40px; padding-top: 2px;
+}
+.log-msg { color: #b8ccd8; font-size: 12px; white-space: pre-wrap; }
+.log-line.INFO  .log-lvl { color: #4ea8de; }
+.log-line.OK    .log-lvl { color: #3ddc84; }
+.log-line.WARN  .log-lvl { color: #f0a040; }
+.log-line.ERROR .log-lvl { color: #ff6b6b; }
+.log-line.DEBUG .log-lvl { color: #4a6070; }
+.log-line.HTTP  .log-lvl { color: #c084fc; }
+.log-line.ERROR .log-msg  { color: #ffaaaa; }
+.log-line.OK    .log-msg  { color: #a8f0c8; }
+.log-line.WARN  .log-msg  { color: #ffd490; }
+.log-line.HTTP  .log-msg  { color: #ddb8fc; }
+.log-line.DEBUG .log-msg  { color: #4a6070; }
+.log-empty {
+  padding: 38px 14px; text-align: center;
+  color: #2e3e52; font-size: 12px;
+}
+.log-ruler {
+  border: none; border-top: 1px solid #1e2d3f;
+  margin: 4px 14px;
+}
 </style>
 </head>
 <body>
@@ -509,6 +600,25 @@ body {
       </div>
     </div>
 
+    <!-- System Log Window -->
+    <div class="log-panel" id="logPanel">
+      <div class="log-header" onclick="toggleLog()">
+        <div class="log-header-left">
+          <div class="log-dot idle" id="logDot"></div>
+          <span class="log-title">System Log</span>
+        </div>
+        <div class="log-controls">
+          <span class="log-count" id="logCount">0</span>
+          <button class="log-btn" onclick="event.stopPropagation();copyLog()" title="Copy all log lines">Copy</button>
+          <button class="log-btn" onclick="event.stopPropagation();clearLog()" title="Clear log">Clear</button>
+          <span class="log-chevron open" id="logChevron">▼</span>
+        </div>
+      </div>
+      <div class="log-body" id="logBody">
+        <div class="log-empty" id="logEmpty">No log entries yet — publish to begin.</div>
+      </div>
+    </div>
+
     <div id="errPub" class="alert alert-err hidden" style="margin-top:18px">
       <span class="alert-icon">⚠</span><span id="errPubMsg"></span>
     </div>
@@ -603,7 +713,85 @@ function clearSaved() {
 }
 
 // ══════════════════════════════════════════════════
-//  NAVIGATION
+//  SYSTEM LOG
+// ══════════════════════════════════════════════════
+const LOG = { lines: [], count: 0, open: true };
+
+function syslog(msg, level='INFO') {
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+  LOG.lines.push({ ts, level, msg });
+  LOG.count++;
+
+  const body  = document.getElementById('logBody');
+  const empty = document.getElementById('logEmpty');
+  const count = document.getElementById('logCount');
+  const dot   = document.getElementById('logDot');
+  if (!body) return;
+
+  if (empty) empty.remove();
+  count.textContent = LOG.count;
+
+  // Update dot state
+  dot.className = 'log-dot';
+  if (level === 'ERROR') dot.classList.add('error');
+  else if (level === 'OK') dot.classList.add('ok');
+  else dot.classList.add('active');
+
+  const line = document.createElement('div');
+  line.className = `log-line ${level}`;
+  line.innerHTML =
+    `<span class="log-ts">${ts}</span>` +
+    `<span class="log-lvl">${level.padEnd(5)}</span>` +
+    `<span class="log-msg">${escLog(msg)}</span>`;
+  body.appendChild(line);
+
+  // Auto-scroll to bottom
+  requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+}
+
+function logRuler() {
+  const body = document.getElementById('logBody');
+  if (!body) return;
+  const hr = document.createElement('hr'); hr.className = 'log-ruler';
+  body.appendChild(hr);
+}
+
+function escLog(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleLog() {
+  LOG.open = !LOG.open;
+  const body = document.getElementById('logBody');
+  const chev = document.getElementById('logChevron');
+  body.classList.toggle('collapsed', !LOG.open);
+  chev.classList.toggle('open', LOG.open);
+}
+
+function clearLog() {
+  LOG.lines = []; LOG.count = 0;
+  const body = document.getElementById('logBody');
+  body.innerHTML = '<div class="log-empty" id="logEmpty">Log cleared.</div>';
+  document.getElementById('logCount').textContent = '0';
+  document.getElementById('logDot').className = 'log-dot idle';
+}
+
+function copyLog() {
+  const text = LOG.lines.map(l => `[${l.ts}] ${l.level.padEnd(5)} ${l.msg}`).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.log-btn');
+    const orig = btn.textContent; btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => alert('Could not copy — try selecting text manually.'));
+}
+
+function logDotIdle() {
+  const dot = document.getElementById('logDot');
+  if (dot) { dot.className = 'log-dot ok'; }
+}
+
+// ══════════════════════════════════════════════════
 // ══════════════════════════════════════════════════
 function nav(n) {
   for (let i = 1; i <= 4; i++) {
@@ -828,12 +1016,21 @@ async function doPublish(){
   const btn=document.getElementById('btnPublish');
   btn.disabled=true; btn.innerHTML='<span class="spin"></span> Starting…';
   nav(4);
+  syslog(`Publish initiated for "${svcName}"`, 'INFO');
   try {
     await runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,desc});
   } catch(e) {
+    syslog(`PIPELINE FAILED: ${e.message}`, 'ERROR');
     document.getElementById('errPubMsg').textContent=e.message;
     document.getElementById('errPub').classList.remove('hidden');
     document.getElementById('pubSub').textContent='An error occurred. See details below.';
+    logDotIdle();
+    // Mark the active step as error
+    for(let i=1;i<=5;i++){
+      if(document.getElementById('pi'+i).classList.contains('active')){
+        piState(i,'error','Failed — see log for details');
+      }
+    }
   } finally {
     btn.disabled=false; btn.innerHTML='🚀 Publish Now';
   }
@@ -853,64 +1050,104 @@ function piState(n,st,desc){
 async function runPipeline({svcName,svcTitle,latField,lonField,dispField,tags,desc}){
   const {token,user,portal}=S;
 
+  logRuler();
+  syslog(`Pipeline started — user: ${user} | portal: ${portal}`, 'INFO');
+  syslog(`File: "${S.file.name}" | Type: ${S.fileType} | Rows: ${S.rows.length} | Cols: ${S.cols.length}`, 'INFO');
+  syslog(`Service name: "${svcName}" | Lat: "${latField}" | Lon: "${lonField}"${dispField?' | Display: "'+dispField+'"':''}`, 'DEBUG');
+
   // 1. Upload
   piState(1,'active','Uploading to ArcGIS Online…');
+  syslog('─── STEP 1: Upload CSV item to ArcGIS Online ───', 'INFO');
   let uploadFile=S.file;
   if(S.fileType!=='CSV'){
     const csvText=rowsToCSV(S.rows,S.cols);
     uploadFile=new File([csvText],svcName+'.csv',{type:'text/csv'});
+    syslog(`Converted ${S.fileType} → CSV (${S.rows.length} rows)`, 'DEBUG');
   }
+  syslog(`POST ${portal}/sharing/rest/content/users/${user}/addItem`, 'HTTP');
   const fileItemId=await api_addItem(portal,user,token,{
     title:svcTitle, type:'CSV', file:uploadFile, tags, description:desc,
   });
   S.fileItemId=fileItemId;
+  syslog(`Item uploaded successfully — itemId: ${fileItemId}`, 'OK');
   piState(1,'done',`Item ID: ${fileItemId}`);
 
   // 2. Publish
   piState(2,'active','Submitting publish job…');
+  syslog('─── STEP 2: Publish hosted feature layer ───', 'INFO');
   const pubParams={
     name:svcName, locationType:'coordinates',
     latitudeFieldName:latField, longitudeFieldName:lonField,
     maxRecordCount:10000, hasStaticData:false, capabilities:'Query,Editing',
   };
+  syslog(`Publish params: ${JSON.stringify(pubParams)}`, 'DEBUG');
+  syslog(`POST ${portal}/sharing/rest/content/users/${user}/publish`, 'HTTP');
   const pub=await api_publish(portal,user,token,fileItemId,'CSV',pubParams);
   let svcItemId=pub.serviceItemId;
   let svcUrl=pub.serviceurl||pub.encodedServiceURL||'';
   if(svcUrl.includes('%')) svcUrl=decodeURIComponent(svcUrl);
+  syslog(`Publish response — serviceItemId: ${svcItemId || '(pending)'}`, 'INFO');
 
   if(pub.jobId){
+    syslog(`Async job detected — jobId: ${pub.jobId}`, 'INFO');
     piState(2,'active','Waiting for feature service to be created…');
+    syslog('Polling job status every 3 seconds…', 'DEBUG');
     await pollJob(portal,user,token,fileItemId,pub.jobId);
+    syslog('Publish job completed', 'OK');
   }
   if(svcItemId){
-    try{ const d=await api_getItem(portal,token,svcItemId); if(d.url) svcUrl=d.url; }catch(_){}
+    try{
+      syslog(`GET ${portal}/sharing/rest/content/items/${svcItemId}`, 'HTTP');
+      const d=await api_getItem(portal,token,svcItemId);
+      if(d.url) svcUrl=d.url;
+      syslog(`Feature service URL: ${svcUrl}`, 'OK');
+    }catch(e){ syslog(`Could not fetch service item details: ${e.message}`, 'WARN'); }
   }
   S.svcItemId=svcItemId; S.svcUrl=svcUrl;
   piState(2,'done',svcUrl?svcUrl.split('/').slice(-2).join('/'):'Feature service created');
 
   // 3. Share FS
   piState(3,'active','Setting sharing to Everyone…');
-  if(svcItemId) await api_share(portal,user,token,svcItemId);
-  try{ await api_share(portal,user,token,fileItemId); }catch(_){}
+  syslog('─── STEP 3: Share feature service ───', 'INFO');
+  if(svcItemId){
+    syslog(`POST .../items/${svcItemId}/share  {everyone:true, org:true}`, 'HTTP');
+    await api_share(portal,user,token,svcItemId);
+    syslog(`Feature service item shared — itemId: ${svcItemId}`, 'OK');
+  }
+  try{
+    syslog(`POST .../items/${fileItemId}/share  (source CSV)`, 'HTTP');
+    await api_share(portal,user,token,fileItemId);
+    syslog(`Source CSV item shared — itemId: ${fileItemId}`, 'OK');
+  }catch(e){ syslog(`Could not share source CSV (non-fatal): ${e.message}`, 'WARN'); }
   piState(3,'done','Shared publicly with Everyone');
 
   // 4. Create web map
   piState(4,'active','Building web map definition…');
+  syslog('─── STEP 4: Create ArcGIS Online web map ───', 'INFO');
   const layerUrl=normalizeLayerUrl(svcUrl);
+  syslog(`Layer URL (normalized): ${layerUrl}`, 'DEBUG');
   const mapDef=makeWebMap(svcTitle,layerUrl,svcItemId,dispField);
+  syslog(`POST ${portal}/sharing/rest/content/users/${user}/addItem  (Web Map)`, 'HTTP');
   const mapId=await api_addItem(portal,user,token,{
     title:svcTitle+' — Web Map', type:'Web Map',
     text:JSON.stringify(mapDef),
     snippet:`Web map for: ${svcTitle}`, tags, description:desc,
   });
   S.mapId=mapId;
+  syslog(`Web map created — itemId: ${mapId}`, 'OK');
   piState(4,'done',`Web Map ID: ${mapId}`);
 
   // 5. Share web map
   piState(5,'active','Setting web map sharing to Everyone…');
+  syslog('─── STEP 5: Share web map ───', 'INFO');
+  syslog(`POST .../items/${mapId}/share  {everyone:true, org:true}`, 'HTTP');
   await api_share(portal,user,token,mapId);
+  syslog(`Web map shared — itemId: ${mapId}`, 'OK');
   piState(5,'done','Web map shared publicly');
 
+  syslog('══ Pipeline complete ══', 'OK');
+  syslog(`Web map viewer: ${portal}/apps/mapviewer/index.html?webmap=${mapId}`, 'OK');
+  logDotIdle();
   showDone(portal,svcUrl,mapId);
 }
 
@@ -959,6 +1196,7 @@ function startOver(){
   document.getElementById('errPub').classList.add('hidden');
   document.getElementById('doneWrap').classList.add('hidden');
   document.getElementById('pubSub').textContent='Working through the pipeline — this may take up to a minute.';
+  clearLog();
   nav(1);
   loadSavedCreds();
 }
@@ -999,44 +1237,88 @@ function rowsToCSV(rows,cols){
 // ══════════════════════════════════════════════════
 //  ARCGIS REST API
 // ══════════════════════════════════════════════════
-// Serialize params to a plain string — avoids DataCloneError in sandboxed iframes
-// that can't transfer URLSearchParams objects across the fetch boundary.
+// ── Request helpers ──────────────────────────────────────────────────────────
+// All POST bodies are plain URL-encoded strings (not URLSearchParams objects)
+// to avoid DataCloneError in sandboxed iframes.
 const FORM_HEADERS = {'Content-Type':'application/x-www-form-urlencoded'};
-function qs(obj){ return Object.entries(obj).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&'); }
+function qs(obj){
+  return Object.entries(obj)
+    .filter(([,v])=>v!==undefined&&v!==null)
+    .map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v))
+    .join('&');
+}
+
+// ArcGIS token strategy depends on where the page is hosted:
+//
+//   file://   → IP-based token  (no client/referer params)
+//               ArcGIS will accept requests from any IP.
+//
+//   http(s):// → Referer-based token  (client=referer + referer=origin)
+//                ArcGIS requires this when the request comes from a real
+//                web origin; without it the server returns "Unable to
+//                generate token". The browser automatically sends the
+//                matching Referer header on every subsequent fetch, so
+//                all API calls validate correctly.
+//
+// The stored referer string is attached to every API call so it is always
+// present in the request (belt-and-suspenders for stricter org configs).
+
+function getReferer(){
+  return window.location.protocol === 'file:' ? null : window.location.origin;
+}
 
 async function agolToken(user,pass,portal){
-  // No 'referer'/'client' → ArcGIS issues an IP-based token valid from any origin.
-  const res=await fetch(`${portal}/sharing/rest/generateToken`,{
-    method:'POST', headers:FORM_HEADERS,
-    body:qs({username:user,password:pass,expiration:'120',f:'json'}),
+  const referer = getReferer();
+  const params = {
+    username: user, password: pass, expiration: '120', f: 'json',
+    ...(referer ? {client:'referer', referer} : {}),
+  };
+  const res = await fetch(`${portal}/sharing/rest/generateToken`, {
+    method:'POST', headers:FORM_HEADERS, body:qs(params),
   });
   if(!res.ok) throw new Error(`HTTP ${res.status} from portal`);
-  const d=await res.json();
+  const d = await res.json();
   if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
   if(!d.token) throw new Error('No token returned — check your username and password.');
+  // Store the referer we used so every subsequent call sends it too
+  S._referer = referer;
   return d.token;
+}
+
+// Append token (and referer when applicable) to any param object
+function withAuth(params){
+  return {
+    ...params,
+    token: S.token,
+    ...(S._referer ? {referer: S._referer} : {}),
+  };
 }
 
 async function api_addItem(portal,user,token,opts){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/addItem`;
   let res;
   if(opts.file){
-    // File upload must use FormData/multipart — this is the only fetch that does so.
+    // File upload must use multipart/form-data — FormData is fine here
+    // because it is only used in the main window context (not cloned).
     const fd=new FormData();
-    fd.append('title',opts.title); fd.append('type',opts.type); fd.append('file',opts.file);
+    fd.append('title',opts.title);
+    fd.append('type',opts.type);
+    fd.append('file',opts.file);
     if(opts.tags)        fd.append('tags',opts.tags);
     if(opts.description) fd.append('description',opts.description);
-    fd.append('token',token); fd.append('f','json');
+    fd.append('token',token);
+    if(S._referer) fd.append('referer',S._referer);
+    fd.append('f','json');
     res=await fetch(url,{method:'POST',body:fd});
   } else {
-    res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
+    res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({
       title:opts.title, type:opts.type,
       ...(opts.text       ?{text:opts.text}:{}),
       ...(opts.snippet    ?{snippet:opts.snippet}:{}),
       ...(opts.tags       ?{tags:opts.tags}:{}),
       ...(opts.description?{description:opts.description}:{}),
-      token, f:'json',
-    })});
+      f:'json',
+    }))});
   }
   if(!res.ok) throw new Error(`addItem HTTP ${res.status}`);
   const d=await res.json();
@@ -1046,9 +1328,9 @@ async function api_addItem(portal,user,token,opts){
 
 async function api_publish(portal,user,token,itemId,itemType,publishParameters){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/publish`;
-  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
-    itemId, itemType, publishParameters:JSON.stringify(publishParameters), token, f:'json',
-  })});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({
+    itemId, itemType, publishParameters:JSON.stringify(publishParameters), f:'json',
+  }))});
   if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
   const d=await res.json();
   if(d.error) throw new Error('publish: '+(d.error.message||JSON.stringify(d.error)));
@@ -1059,8 +1341,9 @@ async function api_publish(portal,user,token,itemId,itemType,publishParameters){
 async function pollJob(portal,user,token,itemId,jobId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/status`;
   for(let i=0;i<90;i++){
-    const res=await fetch(`${url}?${qs({token,jobId,jobType:'publish',f:'json'})}`);
+    const res=await fetch(`${url}?${qs(withAuth({jobId,jobType:'publish',f:'json'}))}`);
     const d=await res.json();
+    syslog(`Job poll #${i+1} — status: ${d.status}${d.statusMessage?' ('+d.statusMessage+')':''}`, 'DEBUG');
     if(d.status==='completed') return d;
     if(d.status==='failed') throw new Error('Publish failed: '+(d.statusMessage||JSON.stringify(d)));
     await sleep(3000);
@@ -1069,7 +1352,7 @@ async function pollJob(portal,user,token,itemId,jobId){
 }
 
 async function api_getItem(portal,token,itemId){
-  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?${qs({token,f:'json'})}`);
+  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?${qs(withAuth({f:'json'}))}`);
   const d=await res.json();
   if(d.error) throw new Error('getItem: '+d.error.message);
   return d;
@@ -1077,7 +1360,7 @@ async function api_getItem(portal,token,itemId){
 
 async function api_share(portal,user,token,itemId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/share`;
-  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({everyone:'true',org:'true',token,f:'json'})});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({everyone:'true',org:'true',f:'json'}))});
   const d=await res.json();
   if(d.error) throw new Error('share: '+(d.error.message||JSON.stringify(d.error)));
   return d;
