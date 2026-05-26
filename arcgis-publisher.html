@@ -999,44 +999,88 @@ function rowsToCSV(rows,cols){
 // ══════════════════════════════════════════════════
 //  ARCGIS REST API
 // ══════════════════════════════════════════════════
-// Serialize params to a plain string — avoids DataCloneError in sandboxed iframes
-// that can't transfer URLSearchParams objects across the fetch boundary.
+// ── Request helpers ──────────────────────────────────────────────────────────
+// All POST bodies are plain URL-encoded strings (not URLSearchParams objects)
+// to avoid DataCloneError in sandboxed iframes.
 const FORM_HEADERS = {'Content-Type':'application/x-www-form-urlencoded'};
-function qs(obj){ return Object.entries(obj).filter(([,v])=>v!==undefined&&v!==null).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&'); }
+function qs(obj){
+  return Object.entries(obj)
+    .filter(([,v])=>v!==undefined&&v!==null)
+    .map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v))
+    .join('&');
+}
+
+// ArcGIS token strategy depends on where the page is hosted:
+//
+//   file://   → IP-based token  (no client/referer params)
+//               ArcGIS will accept requests from any IP.
+//
+//   http(s):// → Referer-based token  (client=referer + referer=origin)
+//                ArcGIS requires this when the request comes from a real
+//                web origin; without it the server returns "Unable to
+//                generate token". The browser automatically sends the
+//                matching Referer header on every subsequent fetch, so
+//                all API calls validate correctly.
+//
+// The stored referer string is attached to every API call so it is always
+// present in the request (belt-and-suspenders for stricter org configs).
+
+function getReferer(){
+  return window.location.protocol === 'file:' ? null : window.location.origin;
+}
 
 async function agolToken(user,pass,portal){
-  // No 'referer'/'client' → ArcGIS issues an IP-based token valid from any origin.
-  const res=await fetch(`${portal}/sharing/rest/generateToken`,{
-    method:'POST', headers:FORM_HEADERS,
-    body:qs({username:user,password:pass,expiration:'120',f:'json'}),
+  const referer = getReferer();
+  const params = {
+    username: user, password: pass, expiration: '120', f: 'json',
+    ...(referer ? {client:'referer', referer} : {}),
+  };
+  const res = await fetch(`${portal}/sharing/rest/generateToken`, {
+    method:'POST', headers:FORM_HEADERS, body:qs(params),
   });
   if(!res.ok) throw new Error(`HTTP ${res.status} from portal`);
-  const d=await res.json();
+  const d = await res.json();
   if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
   if(!d.token) throw new Error('No token returned — check your username and password.');
+  // Store the referer we used so every subsequent call sends it too
+  S._referer = referer;
   return d.token;
+}
+
+// Append token (and referer when applicable) to any param object
+function withAuth(params){
+  return {
+    ...params,
+    token: S.token,
+    ...(S._referer ? {referer: S._referer} : {}),
+  };
 }
 
 async function api_addItem(portal,user,token,opts){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/addItem`;
   let res;
   if(opts.file){
-    // File upload must use FormData/multipart — this is the only fetch that does so.
+    // File upload must use multipart/form-data — FormData is fine here
+    // because it is only used in the main window context (not cloned).
     const fd=new FormData();
-    fd.append('title',opts.title); fd.append('type',opts.type); fd.append('file',opts.file);
+    fd.append('title',opts.title);
+    fd.append('type',opts.type);
+    fd.append('file',opts.file);
     if(opts.tags)        fd.append('tags',opts.tags);
     if(opts.description) fd.append('description',opts.description);
-    fd.append('token',token); fd.append('f','json');
+    fd.append('token',token);
+    if(S._referer) fd.append('referer',S._referer);
+    fd.append('f','json');
     res=await fetch(url,{method:'POST',body:fd});
   } else {
-    res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
+    res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({
       title:opts.title, type:opts.type,
       ...(opts.text       ?{text:opts.text}:{}),
       ...(opts.snippet    ?{snippet:opts.snippet}:{}),
       ...(opts.tags       ?{tags:opts.tags}:{}),
       ...(opts.description?{description:opts.description}:{}),
-      token, f:'json',
-    })});
+      f:'json',
+    }))});
   }
   if(!res.ok) throw new Error(`addItem HTTP ${res.status}`);
   const d=await res.json();
@@ -1046,9 +1090,9 @@ async function api_addItem(portal,user,token,opts){
 
 async function api_publish(portal,user,token,itemId,itemType,publishParameters){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/publish`;
-  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({
-    itemId, itemType, publishParameters:JSON.stringify(publishParameters), token, f:'json',
-  })});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({
+    itemId, itemType, publishParameters:JSON.stringify(publishParameters), f:'json',
+  }))});
   if(!res.ok) throw new Error(`publish HTTP ${res.status}`);
   const d=await res.json();
   if(d.error) throw new Error('publish: '+(d.error.message||JSON.stringify(d.error)));
@@ -1059,7 +1103,7 @@ async function api_publish(portal,user,token,itemId,itemType,publishParameters){
 async function pollJob(portal,user,token,itemId,jobId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/status`;
   for(let i=0;i<90;i++){
-    const res=await fetch(`${url}?${qs({token,jobId,jobType:'publish',f:'json'})}`);
+    const res=await fetch(`${url}?${qs(withAuth({jobId,jobType:'publish',f:'json'}))}`);
     const d=await res.json();
     if(d.status==='completed') return d;
     if(d.status==='failed') throw new Error('Publish failed: '+(d.statusMessage||JSON.stringify(d)));
@@ -1069,7 +1113,7 @@ async function pollJob(portal,user,token,itemId,jobId){
 }
 
 async function api_getItem(portal,token,itemId){
-  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?${qs({token,f:'json'})}`);
+  const res=await fetch(`${portal}/sharing/rest/content/items/${itemId}?${qs(withAuth({f:'json'}))}`);
   const d=await res.json();
   if(d.error) throw new Error('getItem: '+d.error.message);
   return d;
@@ -1077,7 +1121,7 @@ async function api_getItem(portal,token,itemId){
 
 async function api_share(portal,user,token,itemId){
   const url=`${portal}/sharing/rest/content/users/${encodeURIComponent(user)}/items/${itemId}/share`;
-  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs({everyone:'true',org:'true',token,f:'json'})});
+  const res=await fetch(url,{method:'POST',headers:FORM_HEADERS,body:qs(withAuth({everyone:'true',org:'true',f:'json'}))});
   const d=await res.json();
   if(d.error) throw new Error('share: '+(d.error.message||JSON.stringify(d.error)));
   return d;
