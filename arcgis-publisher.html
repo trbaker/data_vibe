@@ -906,19 +906,70 @@ function parseCsv(text,name){
   setData(r.data, r.meta.fields||[], 'CSV', name);
 }
 function parseGpx(text,name){
-  const doc=new DOMParser().parseFromString(text,'text/xml');
-  if(doc.querySelector('parsererror')) throw new Error('Invalid GPX XML.');
-  const pts=[...doc.querySelectorAll('wpt'),...doc.querySelectorAll('trkpt'),...doc.querySelectorAll('rtept')];
+  // Strip the default namespace declaration so querySelector('trkpt') works
+  // reliably across all browsers. Without this, browsers that honour XML
+  // namespaces return nothing because the nodes live in the GPX namespace,
+  // not the null namespace that querySelector targets.
+  const cleaned = text.replace(/\sxmlns(?::\w+)?="[^"]*"/g, '');
+  const doc = new DOMParser().parseFromString(cleaned, 'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error('Invalid GPX XML — could not parse.');
+
+  const pts = [
+    ...doc.querySelectorAll('wpt'),
+    ...doc.querySelectorAll('trkpt'),
+    ...doc.querySelectorAll('rtept'),
+  ];
   if(!pts.length) throw new Error('No waypoints or track points found in GPX.');
-  const rows=pts.map(pt=>{
-    const row={latitude:pt.getAttribute('lat'),longitude:pt.getAttribute('lon')};
-    [['name','name'],['desc','description'],['ele','elevation'],['time','time'],['type','type'],['sym','symbol'],['cmt','comment']].forEach(([tag,key])=>{
-      const el=pt.querySelector(tag); if(el) row[key]=el.textContent.trim();
+
+  const rows = pts.map(pt => {
+    const row = {
+      latitude:  pt.getAttribute('lat'),
+      longitude: pt.getAttribute('lon'),
+    };
+    // Standard GPX child elements
+    [
+      ['name',        'name'],
+      ['desc',        'description'],
+      ['ele',         'elevation'],
+      ['time',        'time'],
+      ['type',        'type'],
+      ['sym',         'symbol'],
+      ['cmt',         'comment'],
+      ['hdop',        'hdop'],
+      ['vdop',        'vdop'],
+      ['pdop',        'pdop'],
+      ['sat',         'satellites'],
+      ['fix',         'fix_type'],
+      ['geoidheight', 'geoid_height'],
+    ].forEach(([tag, key]) => {
+      const el = pt.querySelector(tag);
+      if(el) row[key] = el.textContent.trim();
+    });
+    // Namespaced extension elements (e.g. badelf:speed, garmin:speed)
+    // querySelector won't match prefixed names after stripping, but the
+    // tag's localName is still correct.
+    pt.querySelectorAll('extensions *').forEach(el => {
+      const localName = el.localName || el.tagName.replace(/^.*:/, '');
+      // Only leaf nodes (no children) — skip wrappers like <extensions>
+      if(el.children.length === 0 && localName !== 'extensions') {
+        const key = localName.replace(/[^a-zA-Z0-9_]/g, '_');
+        if(!row[key]) row[key] = el.textContent.trim();
+      }
     });
     return row;
   });
-  const cols=['latitude','longitude','name','description','elevation','time','type','symbol','comment'].filter(c=>rows.some(r=>r[c]!==undefined));
-  setData(rows,cols,'GPX',name);
+
+  // Build column list: core fields first, then any extras found
+  const coreCols = ['latitude','longitude','time','elevation','name','description',
+    'hdop','vdop','pdop','satellites','fix_type','speed','symbol','comment','type','geoid_height'];
+  const extraCols = [];
+  rows.forEach(r => Object.keys(r).forEach(k => {
+    if(!coreCols.includes(k) && !extraCols.includes(k)) extraCols.push(k);
+  }));
+  const cols = [...coreCols, ...extraCols].filter(c => rows.some(r => r[c] !== undefined));
+
+  syslog(`GPX parsed: ${rows.length} points, columns: ${cols.join(', ')}`, 'DEBUG');
+  setData(rows, cols, 'GPX', name);
 }
 function parseGeojson(text,name){
   const json=JSON.parse(text);
