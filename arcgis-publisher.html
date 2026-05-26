@@ -364,6 +364,8 @@ body {
   transition: height .25s ease, padding .25s ease;
 }
 .log-body.collapsed { height: 0 !important; padding: 0; }
+.log-panel.compact .log-body { height: 160px; }
+.log-panel.compact .log-title { font-size: 10.5px; }
 .log-body::-webkit-scrollbar { width: 5px; }
 .log-body::-webkit-scrollbar-track { background: #111923; }
 .log-body::-webkit-scrollbar-thumb { background: #263245; border-radius: 3px; }
@@ -502,6 +504,25 @@ body {
         <span class="alert-icon">✓</span><span id="previewMsg"></span>
       </div>
       <div class="tbl-wrap" id="tblWrap"></div>
+    </div>
+
+    <!-- Parse log panel — always visible on step 2 -->
+    <div class="log-panel compact" id="parseLogPanel" style="margin-bottom:20px">
+      <div class="log-header" onclick="toggleParseLog()">
+        <div class="log-header-left">
+          <div class="log-dot idle" id="parseLogDot"></div>
+          <span class="log-title">Parse Log</span>
+        </div>
+        <div class="log-controls">
+          <span class="log-count" id="parseLogCount">0</span>
+          <button class="log-btn" onclick="event.stopPropagation();copyParseLog()" title="Copy log">Copy</button>
+          <button class="log-btn" onclick="event.stopPropagation();clearParseLog()" title="Clear log">Clear</button>
+          <span class="log-chevron open" id="parseLogChevron">▼</span>
+        </div>
+      </div>
+      <div class="log-body" id="parseLogBody">
+        <div class="log-empty" id="parseLogEmpty">Drop or select a file to begin.</div>
+      </div>
     </div>
 
     <div class="btn-actions">
@@ -730,28 +751,43 @@ function clearSaved() {
 //  SYSTEM LOG
 // ══════════════════════════════════════════════════
 const LOG = { lines: [], count: 0, open: true };
+const PARSE_LOG = { lines: [], count: 0, open: true };
 
-function syslog(msg, level='INFO') {
+// Write a log line to one or both panels.
+// panel: 'publish' | 'parse' | 'both'
+function syslog(msg, level='INFO', panel='publish') {
   const now = new Date();
   const ts = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
-  LOG.lines.push({ ts, level, msg });
-  LOG.count++;
 
-  const body  = document.getElementById('logBody');
-  const empty = document.getElementById('logEmpty');
-  const count = document.getElementById('logCount');
-  const dot   = document.getElementById('logDot');
+  if (panel === 'parse' || panel === 'both') {
+    PARSE_LOG.lines.push({ ts, level, msg });
+    PARSE_LOG.count++;
+    _appendLogLine('parseLogBody','parseLogEmpty','parseLogCount','parseLogDot', ts, level, msg, PARSE_LOG.count);
+  }
+  if (panel === 'publish' || panel === 'both') {
+    LOG.lines.push({ ts, level, msg });
+    LOG.count++;
+    _appendLogLine('logBody','logEmpty','logCount','logDot', ts, level, msg, LOG.count);
+  }
+}
+
+// Shorthand for parse-only logs (used inside parsers)
+function parselog(msg, level='INFO') { syslog(msg, level, 'parse'); }
+
+function _appendLogLine(bodyId, emptyId, countId, dotId, ts, level, msg, count) {
+  const body  = document.getElementById(bodyId);
   if (!body) return;
-
+  const empty = document.getElementById(emptyId);
   if (empty) empty.remove();
-  count.textContent = LOG.count;
-
-  // Update dot state
-  dot.className = 'log-dot';
-  if (level === 'ERROR') dot.classList.add('error');
-  else if (level === 'OK') dot.classList.add('ok');
-  else dot.classList.add('active');
-
+  const countEl = document.getElementById(countId);
+  if (countEl) countEl.textContent = count;
+  const dot = document.getElementById(dotId);
+  if (dot) {
+    dot.className = 'log-dot';
+    if (level === 'ERROR') dot.classList.add('error');
+    else if (level === 'OK') dot.classList.add('ok');
+    else dot.classList.add('active');
+  }
   const line = document.createElement('div');
   line.className = `log-line ${level}`;
   line.innerHTML =
@@ -759,16 +795,16 @@ function syslog(msg, level='INFO') {
     `<span class="log-lvl">${level.padEnd(5)}</span>` +
     `<span class="log-msg">${escLog(msg)}</span>`;
   body.appendChild(line);
-
-  // Auto-scroll to bottom
   requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
 }
 
 function logRuler() {
-  const body = document.getElementById('logBody');
-  if (!body) return;
-  const hr = document.createElement('hr'); hr.className = 'log-ruler';
-  body.appendChild(hr);
+  ['logBody','parseLogBody'].forEach(id => {
+    const body = document.getElementById(id);
+    if (!body) return;
+    const hr = document.createElement('hr'); hr.className = 'log-ruler';
+    body.appendChild(hr);
+  });
 }
 
 function escLog(s) {
@@ -777,32 +813,51 @@ function escLog(s) {
 
 function toggleLog() {
   LOG.open = !LOG.open;
-  const body = document.getElementById('logBody');
-  const chev = document.getElementById('logChevron');
-  body.classList.toggle('collapsed', !LOG.open);
-  chev.classList.toggle('open', LOG.open);
+  document.getElementById('logBody').classList.toggle('collapsed', !LOG.open);
+  document.getElementById('logChevron').classList.toggle('open', LOG.open);
+}
+
+function toggleParseLog() {
+  PARSE_LOG.open = !PARSE_LOG.open;
+  document.getElementById('parseLogBody').classList.toggle('collapsed', !PARSE_LOG.open);
+  document.getElementById('parseLogChevron').classList.toggle('open', PARSE_LOG.open);
 }
 
 function clearLog() {
   LOG.lines = []; LOG.count = 0;
   const body = document.getElementById('logBody');
-  body.innerHTML = '<div class="log-empty" id="logEmpty">Log cleared.</div>';
-  document.getElementById('logCount').textContent = '0';
-  document.getElementById('logDot').className = 'log-dot idle';
+  if(body) body.innerHTML = '<div class="log-empty" id="logEmpty">Log cleared.</div>';
+  const c = document.getElementById('logCount'); if(c) c.textContent='0';
+  const d = document.getElementById('logDot'); if(d) d.className='log-dot idle';
+}
+
+function clearParseLog() {
+  PARSE_LOG.lines = []; PARSE_LOG.count = 0;
+  const body = document.getElementById('parseLogBody');
+  if(body) body.innerHTML = '<div class="log-empty" id="parseLogEmpty">Log cleared.</div>';
+  const c = document.getElementById('parseLogCount'); if(c) c.textContent='0';
+  const d = document.getElementById('parseLogDot'); if(d) d.className='log-dot idle';
 }
 
 function copyLog() {
-  const text = LOG.lines.map(l => `[${l.ts}] ${l.level.padEnd(5)} ${l.msg}`).join('\n');
+  _copyLogLines(LOG.lines, document.querySelectorAll('#logPanel .log-btn')[0]);
+}
+function copyParseLog() {
+  _copyLogLines(PARSE_LOG.lines, document.querySelectorAll('#parseLogPanel .log-btn')[0]);
+}
+function _copyLogLines(lines, btn) {
+  const text = lines.map(l => `[${l.ts}] ${l.level.padEnd(5)} ${l.msg}`).join('\n');
   navigator.clipboard.writeText(text).then(() => {
-    const btn = document.querySelector('.log-btn');
+    if(!btn) return;
     const orig = btn.textContent; btn.textContent = 'Copied!';
     setTimeout(() => btn.textContent = orig, 1500);
   }).catch(() => alert('Could not copy — try selecting text manually.'));
 }
 
 function logDotIdle() {
-  const dot = document.getElementById('logDot');
-  if (dot) { dot.className = 'log-dot ok'; }
+  ['logDot','parseLogDot'].forEach(id => {
+    const d = document.getElementById(id); if(d) d.className='log-dot ok';
+  });
 }
 
 // ══════════════════════════════════════════════════
@@ -894,21 +949,30 @@ function onFileInput(e){ const f=e.target.files[0]; if(f) ingest(f); }
 
 function ingest(file) {
   hideErr('err2');
+  clearParseLog();
   const ext = file.name.split('.').pop().toLowerCase();
+  parselog(`File selected: "${file.name}" (${(file.size/1024).toFixed(1)} KB)`, 'INFO');
   if (!['csv','gpx','geojson','kml','xml','txt'].includes(ext)) {
-    showErr('err2',`Unsupported file type ".${ext}". Please use CSV, GPX, GeoJSON, or KML.`);
+    const msg = `Unsupported file type ".${ext}". Please use CSV, GPX, GeoJSON, or KML.`;
+    parselog(msg, 'ERROR');
+    showErr('err2', msg);
     return;
   }
+  parselog(`Format detected: ${ext.toUpperCase()} — reading file…`, 'INFO');
   S.file=file; S.fileExt=ext;
   const reader = new FileReader();
   reader.onload = ev => {
     try { parseFile(ev.target.result, file.name, ext); }
-    catch(e) { showErr('err2','Parse error: ' + e.message); }
+    catch(e) {
+      parselog(`Parse error: ${e.message}`, 'ERROR');
+      showErr('err2','Parse error: ' + e.message);
+    }
   };
   reader.readAsText(file);
 }
 
 function parseFile(text, name, ext) {
+  parselog(`Parsing ${ext.toUpperCase()} (${text.length.toLocaleString()} chars)…`, 'DEBUG');
   if      (ext==='csv'||ext==='txt')  parseCsv(text,name);
   else if (ext==='gpx')               parseGpx(text,name);
   else if (ext==='geojson')           parseGeojson(text,name);
@@ -921,52 +985,39 @@ function parseCsv(text,name){
   setData(r.data, r.meta.fields||[], 'CSV', name);
 }
 function parseGpx(text,name){
-  // Strip ALL namespace declarations AND namespace-prefixed attributes (e.g. xsi:schemaLocation).
-  // Without the second pass, xmlns:xsi is removed but xsi:schemaLocation remains on the <gpx>
-  // tag, making the XML invalid (undeclared prefix) and causing a parsererror.
+  parselog('Stripping XML namespaces (3-pass)...', 'DEBUG');
   const cleaned = text
-    .replace(/\s+xmlns(?::\w+)?="[^"]*"/g, '')   // remove xmlns="…" and xmlns:foo="…"
-    .replace(/\s+\w+:[\w-]+="[^"]*"/g, '');       // remove prefix:attr="…" (e.g. xsi:schemaLocation)
+    .replace(/\s+xmlns(?::\w+)?="[^"]*"/g, '')
+    .replace(/\s+\w+:[\w-]+="[^"]*"/g, '')
+    .replace(/<(\/?)\w+:([\w-]+)/g, '<$1$2');
+
   const doc = new DOMParser().parseFromString(cleaned, 'text/xml');
-  if(doc.querySelector('parsererror')) throw new Error('Invalid GPX XML — could not parse.');
+  const parseErr = doc.querySelector('parsererror');
+  if(parseErr) {
+    const detail = parseErr.textContent.trim().split('\n')[0];
+    parselog('XML parsererror: ' + detail, 'ERROR');
+    throw new Error('Invalid GPX XML — ' + detail);
+  }
+  parselog('XML parsed successfully', 'OK');
 
   const pts = [
     ...doc.querySelectorAll('wpt'),
     ...doc.querySelectorAll('trkpt'),
     ...doc.querySelectorAll('rtept'),
   ];
+  parselog('Found ' + pts.length + ' points (wpt + trkpt + rtept)', 'INFO');
   if(!pts.length) throw new Error('No waypoints or track points found in GPX.');
 
   const rows = pts.map(pt => {
-    const row = {
-      latitude:  pt.getAttribute('lat'),
-      longitude: pt.getAttribute('lon'),
-    };
-    // Standard GPX child elements
-    [
-      ['name',        'name'],
-      ['desc',        'description'],
-      ['ele',         'elevation'],
-      ['time',        'time'],
-      ['type',        'type'],
-      ['sym',         'symbol'],
-      ['cmt',         'comment'],
-      ['hdop',        'hdop'],
-      ['vdop',        'vdop'],
-      ['pdop',        'pdop'],
-      ['sat',         'satellites'],
-      ['fix',         'fix_type'],
-      ['geoidheight', 'geoid_height'],
-    ].forEach(([tag, key]) => {
-      const el = pt.querySelector(tag);
-      if(el) row[key] = el.textContent.trim();
+    const row = { latitude: pt.getAttribute('lat'), longitude: pt.getAttribute('lon') };
+    [['name','name'],['desc','description'],['ele','elevation'],['time','time'],
+     ['type','type'],['sym','symbol'],['cmt','comment'],['hdop','hdop'],
+     ['vdop','vdop'],['pdop','pdop'],['sat','satellites'],['fix','fix_type'],
+     ['geoidheight','geoid_height']].forEach(([tag, key]) => {
+      const el = pt.querySelector(tag); if(el) row[key] = el.textContent.trim();
     });
-    // Namespaced extension elements (e.g. badelf:speed, garmin:speed)
-    // querySelector won't match prefixed names after stripping, but the
-    // tag's localName is still correct.
     pt.querySelectorAll('extensions *').forEach(el => {
       const localName = el.localName || el.tagName.replace(/^.*:/, '');
-      // Only leaf nodes (no children) — skip wrappers like <extensions>
       if(el.children.length === 0 && localName !== 'extensions') {
         const key = localName.replace(/[^a-zA-Z0-9_]/g, '_');
         if(!row[key]) row[key] = el.textContent.trim();
@@ -975,7 +1026,6 @@ function parseGpx(text,name){
     return row;
   });
 
-  // Build column list: core fields first, then any extras found
   const coreCols = ['latitude','longitude','time','elevation','name','description',
     'hdop','vdop','pdop','satellites','fix_type','speed','symbol','comment','type','geoid_height'];
   const extraCols = [];
@@ -984,7 +1034,8 @@ function parseGpx(text,name){
   }));
   const cols = [...coreCols, ...extraCols].filter(c => rows.some(r => r[c] !== undefined));
 
-  syslog(`GPX parsed: ${rows.length} points, columns: ${cols.join(', ')}`, 'DEBUG');
+  parselog('Columns: ' + cols.join(', '), 'OK');
+  parselog('Ready — ' + rows.length.toLocaleString() + ' rows x ' + cols.length + ' columns', 'OK');
   setData(rows, cols, 'GPX', name);
 }
 function parseGeojson(text,name){
